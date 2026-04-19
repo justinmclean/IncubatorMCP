@@ -71,5 +71,4 @@ class McpIntegrationTests(unittest.TestCase):
             )
 
         self.assertEqual(responses[0]["result"]["serverInfo"]["name"], "ipmc-mcp")
-        payload = json.loads(responses[1]["result"]["content"][0]["text"])
-        self.assertEqual(payload["items"][0]["podling"], "Charlie")
+        self.assertEqual(responses[1]["result"]["structuredContent"]["items"][0]["podling"], "Charlie")

@@ -19,7 +19,7 @@ The resulting tools provide IPMC-oriented synthesis: watchlists, graduation read
 4. `ipmc.tools` validates arguments and calls the relevant oversight tool handler.
 5. `ipmc.data` loads and composes source data from installed source MCP libraries.
 6. `ipmc.analysis` derives IPMC-level risk, readiness, confidence, and community signals.
-7. `ipmc.protocol` serializes the tool result back to the MCP client.
+7. `ipmc.protocol` wraps the tool result for the MCP client, using `structuredContent` for structured payloads and a JSON text fallback in `content`.
 
 ## Modules
 
@@ -91,7 +91,7 @@ It supports:
 - `tools/list`
 - `tools/call`
 
-The protocol layer should only orchestrate requests and responses. It should not own IPMC scoring or data composition logic.
+The protocol layer should only orchestrate requests and responses. It should not own IPMC scoring or data composition logic. Structured tool results are returned as both MCP `structuredContent` and a JSON text fallback for clients that only read `content`.
 
 ### `server.py`
 

@@ -62,6 +62,12 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(writes[0]["error"]["code"], -32602)
         self.assertEqual(writes[1]["error"]["code"], -32602)
 
+    def test_tool_response_includes_structured_content_for_json_payloads(self) -> None:
+        response = protocol.tool_response({"ok": True})
+
+        self.assertEqual(response["structuredContent"], {"ok": True})
+        self.assertEqual(json.loads(response["content"][0]["text"]), {"ok": True})
+
     def test_call_tool_success(self) -> None:
         with make_fixture_sources() as (podlings_source, health_source):
             result = protocol.handle_message(
@@ -82,8 +88,7 @@ class ProtocolTests(unittest.TestCase):
             )
 
         self.assertIn("result", result)
-        payload = json.loads(result["result"]["content"][0]["text"])
-        self.assertEqual(payload["podling"], "Alpha")
+        self.assertEqual(result["result"]["structuredContent"]["podling"], "Alpha")
 
     def test_handle_message_paths(self) -> None:
         self.assertEqual(
@@ -136,7 +141,7 @@ class ProtocolTests(unittest.TestCase):
             )
 
         self.assertTrue(response["result"]["isError"])
-        payload = json.loads(response["result"]["content"][0]["text"])
+        payload = response["result"]["structuredContent"]
         self.assertFalse(payload["ok"])
 
     def test_main_handles_parse_error_and_internal_error(self) -> None:

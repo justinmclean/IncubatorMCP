@@ -31,6 +31,25 @@ def emit(payload: dict[str, Any]) -> None:
     sys.stdout.flush()
 
 
+def _json_text(payload: Any) -> str:
+    return json.dumps(payload, ensure_ascii=True, indent=2)
+
+
+def tool_response(payload: Any, *, is_error: bool = False) -> dict[str, Any]:
+    """Build a standard MCP tool result with structured data when available."""
+
+    if isinstance(payload, str):
+        result: dict[str, Any] = {"content": [{"type": "text", "text": payload}]}
+    else:
+        result = {
+            "content": [{"type": "text", "text": _json_text(payload)}],
+            "structuredContent": payload,
+        }
+    if is_error:
+        result["isError"] = True
+    return result
+
+
 def list_tools_payload() -> list[dict[str, Any]]:
     return [
         {
@@ -40,6 +59,15 @@ def list_tools_payload() -> list[dict[str, Any]]:
         }
         for name, info in TOOLS.items()
     ]
+
+
+def call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    if name not in TOOLS:
+        raise ValueError(f"Unknown tool '{name}'")
+    try:
+        return tool_response(TOOLS[name]["handler"](arguments))
+    except Exception as exc:
+        return tool_response({"ok": False, "error": str(exc), "tool": name}, is_error=True)
 
 
 def handle_initialize(message_id: Any, params: dict[str, Any]) -> None:
@@ -70,45 +98,7 @@ def handle_tools_call(message_id: Any, params: dict[str, Any]) -> None:
         emit(make_error(message_id, -32602, "Tool arguments must be an object"))
         return
 
-    try:
-        result = TOOLS[name]["handler"](arguments)
-    except Exception as exc:
-        emit(
-            make_response(
-                message_id,
-                {
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": json.dumps(
-                                {
-                                    "ok": False,
-                                    "error": str(exc),
-                                },
-                                ensure_ascii=True,
-                                indent=2,
-                            ),
-                        }
-                    ],
-                    "isError": True,
-                },
-            )
-        )
-        return
-
-    emit(
-        make_response(
-            message_id,
-            {
-                "content": [
-                    {
-                        "type": "text",
-                        "text": json.dumps(result, ensure_ascii=True, indent=2),
-                    }
-                ]
-            },
-        )
-    )
+    emit(make_response(message_id, call_tool(name, arguments)))
 
 
 def handle_message(message: dict[str, Any]) -> dict[str, Any]:
@@ -142,32 +132,7 @@ def handle_message(message: dict[str, Any]) -> dict[str, Any]:
             return make_error(message_id, -32602, f"Unknown tool '{name}'")
         if not isinstance(arguments, dict):
             return make_error(message_id, -32602, "Tool arguments must be an object")
-        try:
-            result = TOOLS[name]["handler"](arguments)
-        except Exception as exc:
-            return make_response(
-                message_id,
-                {
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=True, indent=2),
-                        }
-                    ],
-                    "isError": True,
-                },
-            )
-        return make_response(
-            message_id,
-            {
-                "content": [
-                    {
-                        "type": "text",
-                        "text": json.dumps(result, ensure_ascii=True, indent=2),
-                    }
-                ]
-            },
-        )
+        return make_response(message_id, call_tool(name, arguments))
 
     return make_error(message_id, -32601, f"Method '{method}' not found")
 
