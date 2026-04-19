@@ -2,19 +2,14 @@
 
 from __future__ import annotations
 
-import importlib
-import sys
 from dataclasses import asdict, dataclass
 from datetime import date
-from pathlib import Path
 from typing import Any
 
-DEFAULT_PODLINGS_REPO = Path.home() / "PodlingsMCP"
-DEFAULT_HEALTH_REPO = Path.home() / "HealthMCP"
-DEFAULT_PODLINGS_SOURCE = "https://incubator.apache.org/podlings.xml"
+from apache_health_mcp import parser as health_parser
+from podlings import data as podlings_data
+
 DEFAULT_HEALTH_SOURCE = "reports"
-_CONFIGURED_PODLINGS_REPO: str | None = None
-_CONFIGURED_HEALTH_REPO: str | None = None
 _CONFIGURED_HEALTH_SOURCE: str | None = None
 
 WINDOW_PREFERENCE = ("3m", "6m", "12m", "to-date")
@@ -27,32 +22,11 @@ def configure_defaults(
     health_repo: str | None = None,
     health_source: str | None = None,
 ) -> None:
-    global _CONFIGURED_PODLINGS_REPO, _CONFIGURED_HEALTH_REPO, _CONFIGURED_HEALTH_SOURCE
+    global _CONFIGURED_HEALTH_SOURCE
 
-    if podlings_repo:
-        _CONFIGURED_PODLINGS_REPO = podlings_repo
-    if health_repo:
-        _CONFIGURED_HEALTH_REPO = health_repo
+    _ = podlings_repo, health_repo
     if health_source:
         _CONFIGURED_HEALTH_SOURCE = health_source
-
-
-def _ensure_import_path(path: Path) -> None:
-    resolved = str(path.resolve())
-    if resolved not in sys.path:
-        sys.path.insert(0, resolved)
-
-
-def _load_podlings_module() -> Any:
-    repo_path = Path(_CONFIGURED_PODLINGS_REPO or str(DEFAULT_PODLINGS_REPO))
-    _ensure_import_path(repo_path)
-    return importlib.import_module("podlings.data")
-
-
-def _load_health_module() -> Any:
-    repo_path = Path(_CONFIGURED_HEALTH_REPO or str(DEFAULT_HEALTH_REPO))
-    _ensure_import_path(repo_path / "src")
-    return importlib.import_module("apache_health_mcp.parser")
 
 
 def parse_iso_date(value: str | None) -> date | None:
@@ -126,18 +100,16 @@ def _reporting_window(summary: dict[str, Any] | None) -> tuple[str | None, dict[
 
 
 def load_podlings(podlings_source: str | None = None) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    module = _load_podlings_module()
-    source = podlings_source or module.DEFAULT_SOURCE
-    podlings, meta = module.parse_podlings(source)
+    source = podlings_source or podlings_data.DEFAULT_SOURCE
+    podlings, meta = podlings_data.parse_podlings(source)
     return [asdict(item) for item in podlings], meta
 
 
 def load_health_summaries(health_source: str | None = None) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:
-    module = _load_health_module()
     reports_dir = health_source or _CONFIGURED_HEALTH_SOURCE or DEFAULT_HEALTH_SOURCE
-    overview = module.reports_overview(reports_dir)
-    reports = module.load_reports(reports_dir)
-    summaries = {report.podling.casefold(): module.summarize_report(report) for report in reports}
+    overview = health_parser.reports_overview(reports_dir)
+    reports = health_parser.load_reports(reports_dir)
+    summaries = {report.podling.casefold(): health_parser.summarize_report(report) for report in reports}
     return summaries, overview
 
 

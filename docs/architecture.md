@@ -6,8 +6,8 @@
 
 It does not replace the source MCPs. Instead, it composes:
 
-- `PodlingsMCP` for podling lifecycle and status data
-- `HealthMCP` for parsed health-report metrics
+- `apache-podlings-mcp` for podling lifecycle and status data
+- `apache-health-mcp` for parsed health-report metrics
 
 The resulting tools provide IPMC-oriented synthesis: watchlists, graduation readiness, podling briefs, mentoring attention, and community-health summaries.
 
@@ -17,7 +17,7 @@ The resulting tools provide IPMC-oriented synthesis: watchlists, graduation read
 2. `server.py` delegates to `ipmc.protocol.main`.
 3. `ipmc.protocol` handles JSON-RPC/MCP messages and dispatches tool calls.
 4. `ipmc.tools` validates arguments and calls the relevant oversight tool handler.
-5. `ipmc.data` loads and composes source data from the sibling MCPs.
+5. `ipmc.data` loads and composes source data from installed source MCP libraries.
 6. `ipmc.analysis` derives IPMC-level risk, readiness, confidence, and community signals.
 7. `ipmc.protocol` serializes the tool result back to the MCP client.
 
@@ -30,17 +30,14 @@ This module is responsible for source loading and composition.
 It:
 
 - imports `PodlingsMCP` and `HealthMCP` modules
-- resolves sibling repository locations
 - resolves the health reports directory from the tool `health_source`, `--health-source`, or `reports`
 - loads podling lifecycle records
 - loads health report summaries
 - joins source data into `OversightRecord` objects
 - selects the preferred health window in this order: `3m`, `6m`, `12m`, `to-date`
 
-Sibling repository locations and the default health reports directory can be configured with startup arguments:
+The default health reports directory can be configured with a startup argument:
 
-- `--podlings-mcp-repo`
-- `--health-mcp-repo`
 - `--health-source`
 
 ### `ipmc/analysis.py`
@@ -115,7 +112,7 @@ The tests mirror the runtime split:
 - `tests/test_mcp_integration.py`
   End-to-end stdio tests that spawn `server.py`.
 
-Tests are self-contained. They create temporary fake sibling MCP modules so CI does not need real `PodlingsMCP` or `HealthMCP` checkouts.
+Tests are self-contained. They use temporary source data while importing the installed source MCP libraries, so CI does not need sibling repository checkouts.
 
 ## Design Notes
 

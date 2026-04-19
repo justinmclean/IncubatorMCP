@@ -4,8 +4,8 @@ A small dependency-free MCP server for Apache Incubator PMC oversight views.
 
 It composes:
 
-- podling lifecycle data from `PodlingsMCP`
-- community and report signals from `apache-health`
+- podling lifecycle data from `apache-podlings-mcp`
+- community and report signals from `apache-health-mcp`
 
 It exposes opinionated Incubator-level tools to help the IPMC:
 
@@ -45,13 +45,8 @@ python3 -m pip install -e .[dev]
 {
   "mcpServers": {
     "ipmc": {
-      "command": "python3",
+      "command": "ipmc-mcp",
       "args": [
-        "/Users/justinmclean/IncubatorMCP/server.py",
-        "--podlings-mcp-repo",
-        "/Users/justinmclean/PodlingsMCP",
-        "--health-mcp-repo",
-        "/Users/justinmclean/HealthMCP",
         "--health-source",
         "/Users/justinmclean/incubator/tools/health/reports"
       ]
@@ -60,19 +55,14 @@ python3 -m pip install -e .[dev]
 }
 ```
 
-The default runtime assumes the sibling source MCP repositories and health reports are available at:
+The default runtime imports its source MCP libraries from installed packages:
 
-- `/Users/justinmclean/PodlingsMCP`
-- `/Users/justinmclean/HealthMCP`
-- `reports`, unless `--health-source` is set
+- `apache-podlings-mcp`
+- `apache-health-mcp`
 
-Tool calls can also override the source data paths with `podlings_source` and `health_source`.
+No local sibling repository checkouts are required. Tool calls can still override the source data paths with `podlings_source` and `health_source`.
 
-Configure source MCP locations and the health reports directory with startup arguments:
-
-- `--podlings-mcp-repo`: path to the `PodlingsMCP` checkout
-- `--health-mcp-repo`: path to the `HealthMCP` checkout
-- `--health-source`: default apache-health reports directory
+Configure the default health reports directory with `--health-source`. If unset, it defaults to `reports`.
 
 ## Test
 
@@ -87,7 +77,7 @@ python3 -m coverage run -m unittest discover -s tests
 python3 -m coverage report -m
 ```
 
-Coverage is scoped to the local `ipmc` package so imported sibling MCPs do not dilute the report.
+Coverage is scoped to the local `ipmc` package so imported source MCP libraries do not dilute the report.
 
 ## Architecture
 

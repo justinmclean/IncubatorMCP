@@ -106,8 +106,6 @@ _Generated on 2026-04-18_
 class FixtureSources:
     podlings_source: str
     health_source: str
-    podlings_repo: str
-    health_repo: str
 
     def __iter__(self) -> Iterator[str]:
         yield self.podlings_source
@@ -120,40 +118,20 @@ def make_fixture_sources() -> Iterator[FixtureSources]:
         base = Path(temp_dir)
         xml_path = base / "sample-podlings.xml"
         reports_dir = base / "reports"
-        podlings_repo = base / "PodlingsMCP"
-        health_repo = base / "HealthMCP"
-        podlings_package = podlings_repo / "podlings"
-        health_package = health_repo / "src" / "apache_health_mcp"
-        podlings_package.mkdir(parents=True)
-        health_package.mkdir(parents=True)
         reports_dir.mkdir()
         xml_path.write_text(SAMPLE_XML, encoding="utf-8")
         (reports_dir / "Alpha.md").write_text(ALPHA_REPORT, encoding="utf-8")
         (reports_dir / "Bravo.md").write_text(BRAVO_REPORT, encoding="utf-8")
         (reports_dir / "Delta.md").write_text(DELTA_REPORT, encoding="utf-8")
-        (podlings_package / "__init__.py").write_text("", encoding="utf-8")
-        (podlings_package / "data.py").write_text(FAKE_PODLINGS_DATA, encoding="utf-8")
-        (health_package / "__init__.py").write_text("", encoding="utf-8")
-        (health_package / "parser.py").write_text(FAKE_HEALTH_PARSER, encoding="utf-8")
 
-        old_podlings_repo = data._CONFIGURED_PODLINGS_REPO
-        old_health_repo = data._CONFIGURED_HEALTH_REPO
         old_health_source = data._CONFIGURED_HEALTH_SOURCE
-        data.configure_defaults(
-            podlings_repo=str(podlings_repo),
-            health_repo=str(health_repo),
-            health_source=str(reports_dir),
-        )
+        data.configure_defaults(health_source=str(reports_dir))
         try:
             yield FixtureSources(
                 podlings_source=str(xml_path),
                 health_source=str(reports_dir),
-                podlings_repo=str(podlings_repo),
-                health_repo=str(health_repo),
             )
         finally:
-            data._CONFIGURED_PODLINGS_REPO = old_podlings_repo
-            data._CONFIGURED_HEALTH_REPO = old_health_repo
             data._CONFIGURED_HEALTH_SOURCE = old_health_source
 
 

@@ -52,22 +52,17 @@ class DataTests(unittest.TestCase):
         self.assertIn("alpha", summaries)
         self.assertEqual(health_meta["report_count"], 3)
 
-    def test_config_overrides_sibling_repos_and_default_reports_dir(self) -> None:
+    def test_config_overrides_default_reports_dir(self) -> None:
         module = mock.Mock()
         module.reports_overview.return_value = {"reports_dir": "/tmp/reports", "report_count": 0}
         module.load_reports.return_value = []
-        data.configure_defaults(podlings_repo="/tmp/podlings", health_repo="/tmp/health", health_source="/tmp/reports")
+        data.configure_defaults(health_source="/tmp/reports")
         try:
-            with mock.patch.object(data, "_ensure_import_path") as ensure_import_path:
-                with mock.patch.object(data.importlib, "import_module", return_value=module):
-                    summaries, overview = data.load_health_summaries()
+            with mock.patch.object(data, "health_parser", module):
+                summaries, overview = data.load_health_summaries()
         finally:
-            data._CONFIGURED_PODLINGS_REPO = None
-            data._CONFIGURED_HEALTH_REPO = None
             data._CONFIGURED_HEALTH_SOURCE = None
 
-        ensure_import_path.assert_called_once()
-        self.assertEqual(str(ensure_import_path.call_args.args[0]), "/tmp/health/src")
         self.assertEqual(summaries, {})
         self.assertEqual(overview["reports_dir"], "/tmp/reports")
 

@@ -67,14 +67,7 @@ class McpIntegrationTests(unittest.TestCase):
                         },
                     },
                 ],
-                args=[
-                    "--podlings-mcp-repo",
-                    sources.podlings_repo,
-                    "--health-mcp-repo",
-                    sources.health_repo,
-                    "--health-source",
-                    health_source,
-                ],
+                args=["--health-source", health_source],
             )
 
         self.assertEqual(responses[0]["result"]["serverInfo"]["name"], "ipmc-mcp")

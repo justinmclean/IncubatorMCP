@@ -46,14 +46,14 @@ class ToolTests(unittest.TestCase):
                     "podlings_source": podlings_source,
                     "health_source": health_source,
                     "severity_at_least": "high",
-                    "include_reasons": ["release_stall"],
+                    "include_reasons": ["missing_reports"],
                     "limit": 1,
                     "as_of_date": "2026-04-18",
                 }
             )
 
         self.assertEqual(len(payload["items"]), 1)
-        self.assertIn("release_stall", payload["items"][0]["watch_reasons"])
+        self.assertIn("missing_reports", payload["items"][0]["watch_reasons"])
 
     def test_ipmc_watchlist_handles_no_signals_path(self) -> None:
         record = OversightRecord(

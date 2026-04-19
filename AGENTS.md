@@ -4,14 +4,14 @@
 
 This repository contains a small dependency-light MCP server for Apache Incubator PMC (IPMC) oversight views.
 
-It composes lifecycle data from `PodlingsMCP` and health-report data from `HealthMCP` into opinionated Incubator-level tools for podling risk, readiness, mentoring needs, and community-health summaries.
+It composes lifecycle data from the `apache-podlings-mcp` package and health-report data from the `apache-health-mcp` package into opinionated Incubator-level tools for podling risk, readiness, mentoring needs, and community-health summaries.
 
 This is an IPMC / Incubator oversight MCP, not a board tool.
 
 ## Project Layout
 
 - `ipmc/data.py`
-  - Source loading, sibling MCP imports, record composition, date helpers, and preferred health-window selection
+  - Source loading, source MCP package imports, record composition, date helpers, and preferred health-window selection
 - `ipmc/analysis.py`
   - Opinionated IPMC scoring, risk signals, readiness assessment, confidence, and community pattern helpers
 - `ipmc/tools.py`
@@ -35,8 +35,7 @@ This is an IPMC / Incubator oversight MCP, not a board tool.
 
 - `podlings_source` defaults to the ASF Incubator `podlings.xml` URL through `PodlingsMCP`.
 - `health_source` defaults to the `--health-source` startup argument, or `reports` if unset.
-- Sibling modules are imported from `~/PodlingsMCP` and `~/HealthMCP/src`.
-- `--podlings-mcp-repo` and `--health-mcp-repo` can configure sibling checkout locations in MCP client config.
+- Source MCP modules are imported from installed packages; local sibling checkouts are not required.
 - Oversight views focus on current podlings unless a lower-level helper explicitly includes non-current records.
 - Health analysis prefers the freshest available window in this order: `3m`, `6m`, `12m`, `to-date`.
 - Outputs should keep source facts separate from derived IPMC opinions.
@@ -55,7 +54,7 @@ Coverage is available via:
 
 - `make coverage`
 
-Coverage is scoped to the local `ipmc` package so imported sibling MCPs do not dilute the report.
+Coverage is scoped to the local `ipmc` package so imported source MCP libraries do not dilute the report.
 
 ## Contribution Guidelines
 
@@ -69,7 +68,7 @@ Coverage is scoped to the local `ipmc` package so imported sibling MCPs do not d
 - Update `README.md` when changing public MCP tools or defaults.
 - Update `IPMCMCP.md` when changing the conceptual framing or oversight model.
 - Update `docs/architecture.md` when changing module boundaries or runtime flow.
-- Avoid duplicating raw `PodlingsMCP` or `HealthMCP` APIs without adding IPMC-level interpretation.
+- Avoid duplicating raw source MCP APIs without adding IPMC-level interpretation.
 
 ## Testing Notes
 
