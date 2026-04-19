@@ -90,6 +90,8 @@ It supports:
 - `notifications/initialized`
 - `tools/list`
 - `tools/call`
+- JSON-RPC batch requests
+- structured JSON-RPC errors for parse errors, invalid requests, invalid params, and unknown methods
 
 The protocol layer should only orchestrate requests and responses. It should not own IPMC scoring or data composition logic. Structured tool results are returned as both MCP `structuredContent` and a JSON text fallback for clients that only read `content`.
 

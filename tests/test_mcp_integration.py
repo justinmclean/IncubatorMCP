@@ -5,6 +5,7 @@ import subprocess
 import sys
 import unittest
 from pathlib import Path
+from typing import Any
 
 from tests.fixtures import make_fixture_sources
 
@@ -13,7 +14,7 @@ SERVER_SCRIPT = ROOT / "server.py"
 
 
 class McpIntegrationTests(unittest.TestCase):
-    def _run_session(self, messages: list[dict], args: list[str] | None = None) -> list[dict]:
+    def _run_session(self, messages: list[Any], args: list[str] | None = None) -> list[Any]:
         proc = subprocess.Popen(
             [sys.executable, str(SERVER_SCRIPT), *(args or [])],
             cwd=str(ROOT),
@@ -23,7 +24,7 @@ class McpIntegrationTests(unittest.TestCase):
             text=True,
         )
         try:
-            responses = []
+            responses: list[Any] = []
             assert proc.stdin is not None
             assert proc.stdout is not None
             assert proc.stderr is not None
@@ -72,3 +73,21 @@ class McpIntegrationTests(unittest.TestCase):
 
         self.assertEqual(responses[0]["result"]["serverInfo"]["name"], "ipmc-mcp")
         self.assertEqual(responses[1]["result"]["structuredContent"]["items"][0]["podling"], "Charlie")
+
+    def test_batch_request(self) -> None:
+        responses = self._run_session(
+            [
+                [
+                    {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}},
+                    {"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}},
+                    {"jsonrpc": "2.0", "id": 2, "method": "missing/method", "params": {}},
+                ]
+            ]
+        )
+
+        self.assertIsInstance(responses[0], list)
+        batch = responses[0]
+        assert isinstance(batch, list)
+        self.assertEqual(len(batch), 2)
+        self.assertIn("tools", batch[0]["result"])
+        self.assertEqual(batch[1]["error"]["code"], -32601)

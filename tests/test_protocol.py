@@ -110,6 +110,61 @@ class ProtocolTests(unittest.TestCase):
         bad_method = protocol.handle_message({"jsonrpc": "2.0", "id": 5, "method": "unknown/method", "params": {}})
         self.assertEqual(bad_method["error"]["code"], -32601)
 
+    def test_handle_message_rejects_malformed_requests(self) -> None:
+        cases = [
+            ([], -32600, "JSON-RPC request must be an object"),
+            ({"id": 1, "method": "tools/list", "params": {}}, -32600, "jsonrpc must be '2.0'"),
+            ({"jsonrpc": "2.0", "id": 1, "params": {}}, -32600, "method is required"),
+            ({"jsonrpc": "2.0", "id": 1, "method": "", "params": {}}, -32600, "method must be a non-empty string"),
+            ({"jsonrpc": "2.0", "id": True, "method": "tools/list", "params": {}}, -32600, "id must be"),
+            ({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": []}, -32602, "params must be an object"),
+        ]
+
+        for payload, expected_code, expected_reason in cases:
+            with self.subTest(payload=payload):
+                response = protocol.handle_message(payload)
+                self.assertEqual(response["error"]["code"], expected_code)
+                self.assertIn(expected_reason, response["error"]["data"]["reason"])
+
+    def test_tools_call_requires_name(self) -> None:
+        response = protocol.handle_message(
+            {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"arguments": {}}}
+        )
+
+        self.assertEqual(response["error"]["code"], -32602)
+        self.assertEqual(response["error"]["data"]["field"], "name")
+
+    def test_handle_payload_supports_batches(self) -> None:
+        response = protocol.handle_payload(
+            [
+                {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}},
+                {"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}},
+                {"jsonrpc": "2.0", "id": 2, "method": "unknown/method", "params": {}},
+                "not a request",
+            ]
+        )
+
+        self.assertIsInstance(response, list)
+        assert isinstance(response, list)
+        self.assertEqual(len(response), 3)
+        self.assertIn("tools", response[0]["result"])
+        self.assertEqual(response[1]["id"], 2)
+        self.assertEqual(response[1]["error"]["code"], -32601)
+        self.assertEqual(response[2]["id"], None)
+        self.assertEqual(response[2]["error"]["code"], -32600)
+
+    def test_handle_payload_empty_batch_is_invalid(self) -> None:
+        response = protocol.handle_payload([])
+
+        assert isinstance(response, dict)
+        self.assertEqual(response["error"]["code"], -32600)
+        self.assertEqual(response["id"], None)
+
+    def test_handle_payload_notification_only_batch_has_no_response(self) -> None:
+        response = protocol.handle_payload([{"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}}])
+
+        self.assertEqual(response, [])
+
     def test_call_tool_invalid_arguments_returns_jsonrpc_error(self) -> None:
         response = protocol.handle_message(
             {
@@ -166,6 +221,6 @@ class ProtocolTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         self.assertEqual(len(writes), 3)
-        self.assertEqual(json.loads(writes[0])["error"]["code"], -32603)
+        self.assertEqual(json.loads(writes[0])["error"]["code"], -32700)
         self.assertIn("tools", json.loads(writes[1])["result"])
-        self.assertEqual(json.loads(writes[2])["error"]["code"], -32603)
+        self.assertEqual(json.loads(writes[2])["error"]["code"], -32600)

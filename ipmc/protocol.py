@@ -14,6 +14,14 @@ SERVER_INFO = {
     "version": "0.1.0",
 }
 
+PARSE_ERROR = -32700
+INVALID_REQUEST = -32600
+METHOD_NOT_FOUND = -32601
+INVALID_PARAMS = -32602
+INTERNAL_ERROR = -32603
+
+NO_RESPONSE: dict[str, Any] = {}
+
 
 def make_response(message_id: Any, result: dict[str, Any]) -> dict[str, Any]:
     return {"jsonrpc": "2.0", "id": message_id, "result": result}
@@ -26,7 +34,7 @@ def make_error(message_id: Any, code: int, message: str, data: Any = None) -> di
     return {"jsonrpc": "2.0", "id": message_id, "error": error}
 
 
-def emit(payload: dict[str, Any]) -> None:
+def emit(payload: Any) -> None:
     sys.stdout.write(json.dumps(payload, ensure_ascii=True) + "\n")
     sys.stdout.flush()
 
@@ -101,7 +109,56 @@ def handle_tools_call(message_id: Any, params: dict[str, Any]) -> None:
     emit(make_response(message_id, call_tool(name, arguments)))
 
 
-def handle_message(message: dict[str, Any]) -> dict[str, Any]:
+def _error_data(reason: str, **extra: Any) -> dict[str, Any]:
+    data = {"reason": reason}
+    data.update(extra)
+    return data
+
+
+def _valid_id(message_id: Any) -> bool:
+    if message_id is None:
+        return True
+    if isinstance(message_id, bool):
+        return False
+    return isinstance(message_id, str | int)
+
+
+def _request_id(message: Any) -> Any:
+    if isinstance(message, dict) and _valid_id(message.get("id")):
+        return message.get("id")
+    return None
+
+
+def _invalid_request(message: Any, reason: str, **extra: Any) -> dict[str, Any]:
+    return make_error(_request_id(message), INVALID_REQUEST, "Invalid Request", _error_data(reason, **extra))
+
+
+def _validate_request(message: Any) -> dict[str, Any]:
+    if not isinstance(message, dict):
+        return _invalid_request(message, "JSON-RPC request must be an object")
+    if message.get("jsonrpc") != "2.0":
+        return _invalid_request(message, "jsonrpc must be '2.0'", field="jsonrpc")
+    if "method" not in message:
+        return _invalid_request(message, "method is required", field="method")
+    if not isinstance(message["method"], str) or not message["method"]:
+        return _invalid_request(message, "method must be a non-empty string", field="method")
+    if "id" in message and not _valid_id(message["id"]):
+        return _invalid_request(message, "id must be a string, integer, or null", field="id")
+    if "params" in message and not isinstance(message["params"], dict):
+        return make_error(
+            message.get("id"),
+            INVALID_PARAMS,
+            "Invalid params",
+            _error_data("params must be an object", field="params"),
+        )
+    return {}
+
+
+def handle_message(message: Any) -> dict[str, Any]:
+    validation_error = _validate_request(message)
+    if validation_error:
+        return validation_error
+
     message_id = message.get("id")
     method = message.get("method")
     params = message.get("params", {})
@@ -118,23 +175,44 @@ def handle_message(message: dict[str, Any]) -> dict[str, Any]:
         )
 
     if method == "notifications/initialized":
-        return {}
+        return NO_RESPONSE
 
     if method == "tools/list":
         return make_response(message_id, {"tools": list_tools_payload()})
 
     if method == "tools/call":
-        if not isinstance(params, dict):
-            return make_error(message_id, -32602, "Tool params must be an object")
         name = params.get("name")
         arguments = params.get("arguments", {})
+        if not isinstance(name, str) or not name:
+            return make_error(
+                message_id,
+                INVALID_PARAMS,
+                "Invalid params",
+                _error_data("Tool name must be a non-empty string", field="name"),
+            )
         if name not in TOOLS:
-            return make_error(message_id, -32602, f"Unknown tool '{name}'")
+            return make_error(message_id, INVALID_PARAMS, f"Unknown tool '{name}'", _error_data("Unknown tool"))
         if not isinstance(arguments, dict):
-            return make_error(message_id, -32602, "Tool arguments must be an object")
+            return make_error(
+                message_id,
+                INVALID_PARAMS,
+                "Invalid params",
+                _error_data("Tool arguments must be an object", field="arguments"),
+            )
         return make_response(message_id, call_tool(name, arguments))
 
-    return make_error(message_id, -32601, f"Method '{method}' not found")
+    return make_error(message_id, METHOD_NOT_FOUND, f"Method '{method}' not found")
+
+
+def handle_payload(payload: Any) -> dict[str, Any] | list[dict[str, Any]]:
+    """Handle a JSON-RPC payload, including batch requests."""
+
+    if isinstance(payload, list):
+        if not payload:
+            return make_error(None, INVALID_REQUEST, "Invalid Request", _error_data("Batch must not be empty"))
+        responses = [response for item in payload if (response := handle_message(item))]
+        return responses
+    return handle_message(payload)
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -156,14 +234,23 @@ def main(argv: list[str] | None = None) -> int:
 
         try:
             message = json.loads(line)
-            response = handle_message(message)
+            response = handle_payload(message)
             if response:
                 emit(response)
+        except json.JSONDecodeError as exc:
+            emit(
+                make_error(
+                    None,
+                    PARSE_ERROR,
+                    "Parse error",
+                    _error_data(str(exc), line=exc.lineno, column=exc.colno),
+                )
+            )
         except Exception as exc:
             emit(
                 make_error(
                     None,
-                    -32603,
+                    INTERNAL_ERROR,
                     f"Internal error: {exc}",
                     {"traceback": traceback.format_exc()},
                 )
