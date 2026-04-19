@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ipmc-mcp"
+version = "0.1.0"
+description = "MCP server for Apache Incubator PMC oversight views."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.scripts]
+ipmc-mcp = "ipmc.protocol:main"
+
+[project.optional-dependencies]
+test = [
+  "coverage>=7.0.0",
+]
+dev = [
+  "coverage>=7.0.0",
+  "mypy>=1.0.0",
+  "ruff>=0.6.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["ipmc*"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+  "E",
+  "F",
+  "I",
+]
+
+[tool.mypy]
+python_version = "3.12"
+warn_unused_configs = true
+check_untyped_defs = true
+no_implicit_optional = true
+pretty = true
+
+[tool.coverage.run]
+source = ["ipmc"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false

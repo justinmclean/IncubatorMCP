@@ -1,0 +1,166 @@
+from __future__ import annotations
+
+import json
+import unittest
+from unittest import mock
+
+from ipmc import protocol
+from tests.fixtures import make_fixture_sources
+
+
+class ProtocolTests(unittest.TestCase):
+    def test_make_response_and_make_error_helpers(self) -> None:
+        self.assertEqual(protocol.make_response(7, {"ok": True}), {"jsonrpc": "2.0", "id": 7, "result": {"ok": True}})
+        self.assertEqual(
+            protocol.make_error(8, -1, "bad", {"extra": True}),
+            {"jsonrpc": "2.0", "id": 8, "error": {"code": -1, "message": "bad", "data": {"extra": True}}},
+        )
+
+    def test_list_tools_payload_contains_expected_tools(self) -> None:
+        tool_names = [tool["name"] for tool in protocol.list_tools_payload()]
+
+        self.assertEqual(
+            tool_names,
+            [
+                "ipmc_watchlist",
+                "graduation_readiness",
+                "podling_brief",
+                "mentoring_attention_needed",
+                "community_health_summary",
+            ],
+        )
+
+    def test_handle_message_initialize(self) -> None:
+        response = protocol.handle_message(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {"protocolVersion": "2024-11-05"},
+            }
+        )
+
+        self.assertEqual(response["result"]["serverInfo"]["name"], "ipmc-mcp")
+
+    def test_emit_and_wrapper_handlers(self) -> None:
+        stdout = mock.Mock()
+        with mock.patch.object(protocol.sys, "stdout", stdout):
+            protocol.emit({"ok": True})
+            protocol.handle_initialize(1, {"protocolVersion": "2024-11-05"})
+            protocol.handle_tools_list(2)
+
+        self.assertTrue(stdout.write.called)
+        self.assertTrue(stdout.flush.called)
+
+    def test_handle_tools_call_wrapper_error_paths(self) -> None:
+        stdout = mock.Mock()
+        with mock.patch.object(protocol.sys, "stdout", stdout):
+            protocol.handle_tools_call(1, {"name": "missing", "arguments": {}})
+            protocol.handle_tools_call(2, {"name": "podling_brief", "arguments": []})
+
+        writes = [json.loads(call.args[0]) for call in stdout.write.call_args_list]
+        self.assertEqual(writes[0]["error"]["code"], -32602)
+        self.assertEqual(writes[1]["error"]["code"], -32602)
+
+    def test_call_tool_success(self) -> None:
+        with make_fixture_sources() as (podlings_source, health_source):
+            result = protocol.handle_message(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "podling_brief",
+                        "arguments": {
+                            "podling": "Alpha",
+                            "podlings_source": podlings_source,
+                            "health_source": health_source,
+                            "as_of_date": "2026-04-18",
+                        },
+                    },
+                }
+            )
+
+        self.assertIn("result", result)
+        payload = json.loads(result["result"]["content"][0]["text"])
+        self.assertEqual(payload["podling"], "Alpha")
+
+    def test_handle_message_paths(self) -> None:
+        self.assertEqual(
+            protocol.handle_message({"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}}),
+            {},
+        )
+        self.assertEqual(
+            protocol.handle_message({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})["result"][
+                "tools"
+            ][0]["name"],
+            "ipmc_watchlist",
+        )
+        error = protocol.handle_message({"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": []})
+        self.assertEqual(error["error"]["code"], -32602)
+        unknown = protocol.handle_message(
+            {"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "missing", "arguments": {}}}
+        )
+        self.assertEqual(unknown["error"]["code"], -32602)
+        bad_method = protocol.handle_message({"jsonrpc": "2.0", "id": 5, "method": "unknown/method", "params": {}})
+        self.assertEqual(bad_method["error"]["code"], -32601)
+
+    def test_call_tool_invalid_arguments_returns_jsonrpc_error(self) -> None:
+        response = protocol.handle_message(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {"name": "podling_brief", "arguments": []},
+            }
+        )
+
+        self.assertEqual(response["error"]["code"], -32602)
+
+    def test_handle_message_tool_handler_error_payload(self) -> None:
+        with make_fixture_sources() as (podlings_source, health_source):
+            response = protocol.handle_message(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "podling_brief",
+                        "arguments": {
+                            "podling": "Missing",
+                            "podlings_source": podlings_source,
+                            "health_source": health_source,
+                        },
+                    },
+                }
+            )
+
+        self.assertTrue(response["result"]["isError"])
+        payload = json.loads(response["result"]["content"][0]["text"])
+        self.assertFalse(payload["ok"])
+
+    def test_main_handles_parse_error_and_internal_error(self) -> None:
+        stdin = mock.Mock()
+        stdin.__iter__ = mock.Mock(
+            return_value=iter(
+                [
+                    "\n",
+                    '{"broken"\n',
+                    '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}\n',
+                    "[]\n",
+                ]
+            )
+        )
+        stdout = mock.Mock()
+        writes: list[str] = []
+        stdout.write.side_effect = writes.append
+
+        with mock.patch.object(protocol.sys, "stdin", stdin):
+            with mock.patch.object(protocol.sys, "stdout", stdout):
+                exit_code = protocol.main([])
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(len(writes), 3)
+        self.assertEqual(json.loads(writes[0])["error"]["code"], -32603)
+        self.assertIn("tools", json.loads(writes[1])["result"])
+        self.assertEqual(json.loads(writes[2])["error"]["code"], -32603)
