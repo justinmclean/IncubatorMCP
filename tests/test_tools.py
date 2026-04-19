@@ -8,6 +8,17 @@ from ipmc.data import OversightRecord
 from tests.fixtures import make_fixture_sources
 
 
+def assert_explainability(testcase: unittest.TestCase, payload: dict) -> None:
+    testcase.assertIn("source_data_used", payload)
+    testcase.assertIn("reasoning", payload)
+    testcase.assertIn("confidence", payload)
+    testcase.assertIn("missing", payload)
+    testcase.assertTrue(payload["source_data_used"])
+    testcase.assertTrue(payload["reasoning"])
+    testcase.assertTrue(payload["confidence"])
+    testcase.assertTrue(payload["missing"])
+
+
 class ToolTests(unittest.TestCase):
     def test_validation_helpers_reject_bad_values(self) -> None:
         with self.assertRaises(ValueError):
@@ -38,6 +49,8 @@ class ToolTests(unittest.TestCase):
         self.assertEqual(payload["items"][0]["podling"], "Charlie")
         self.assertEqual(payload["items"][0]["severity"], "critical")
         self.assertIn("low_mentor_engagement", payload["items"][0]["watch_reasons"])
+        assert_explainability(self, payload["items"][0]["explainability"])
+        assert_explainability(self, payload["items"][0]["supporting_signals"][0]["explainability"])
 
     def test_ipmc_watchlist_applies_limit_severity_and_reason_filters(self) -> None:
         with make_fixture_sources() as (podlings_source, health_source):
@@ -133,6 +146,8 @@ class ToolTests(unittest.TestCase):
 
         self.assertIn(payload["assessment"], {"ready", "near_ready"})
         self.assertTrue(payload["strengths"])
+        assert_explainability(self, payload["explainability"])
+        assert_explainability(self, payload["evidence"][0]["explainability"])
 
     def test_graduation_readiness_can_omit_evidence(self) -> None:
         with make_fixture_sources() as (podlings_source, health_source):
@@ -164,6 +179,7 @@ class ToolTests(unittest.TestCase):
         self.assertIn("Bravo is a current podling", payload["status_summary"])
         self.assertTrue(payload["active_concerns"])
         self.assertTrue(payload["mentor_attention_areas"] or payload["ipmc_attention_areas"])
+        assert_explainability(self, payload["explainability"])
 
     def test_podling_brief_without_metrics_or_months(self) -> None:
         record = OversightRecord(
@@ -198,6 +214,7 @@ class ToolTests(unittest.TestCase):
             )
 
         self.assertEqual([item["podling"] for item in payload["items"]], ["Charlie"])
+        assert_explainability(self, payload["items"][0]["explainability"])
 
     def test_mentoring_attention_needed_applies_urgency_and_skips_non_matches(self) -> None:
         with make_fixture_sources() as (podlings_source, health_source):
@@ -259,6 +276,8 @@ class ToolTests(unittest.TestCase):
 
         self.assertEqual(payload["scope"], "reporting_podlings")
         self.assertTrue(payload["risk_themes"])
+        assert_explainability(self, payload["explainability"])
+        assert_explainability(self, payload["risk_themes"][0]["explainability"])
 
     def test_community_health_summary_grouping_and_no_examples_paths(self) -> None:
         with make_fixture_sources() as (podlings_source, health_source):

@@ -178,3 +178,12 @@ This server keeps source facts separate from derived opinions. Risk and readines
 - participation breadth
 
 The resulting outputs are intended to support IPMC judgment, not replace it.
+
+Opinionated outputs include an `explainability` object so IPMC members can challenge the result:
+
+- `source_data_used`: the podlings and apache-health fields that informed the opinion
+- `reasoning`: human-readable explanation of why the opinion was reached
+- `confidence`: high, medium, or low confidence in the opinion based on source coverage
+- `missing`: source evidence that is absent or would improve the assessment
+
+Per-podling tools attach this to podling-level judgments and supporting signals. The community-health summary attaches it to the overall summary and each derived risk theme.

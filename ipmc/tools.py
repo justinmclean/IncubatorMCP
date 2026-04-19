@@ -139,8 +139,144 @@ def _watch_reasons(record: Any, evaluation: dict[str, Any]) -> list[str]:
     return sorted(set(reasons))
 
 
-def _supporting_signals(evaluation: dict[str, Any]) -> list[dict[str, Any]]:
-    return [signal.to_dict() for signal in evaluation["signals"]]
+def _metric_snapshot(metrics: dict[str, Any] | None, fields: list[str]) -> dict[str, Any]:
+    if not metrics:
+        return {}
+    return {field: metrics[field] for field in fields if metrics.get(field) is not None}
+
+
+def _source_data_used(record: Any) -> list[dict[str, Any]]:
+    podling_data = {
+        "source": "podlings",
+        "fields": ["name", "status", "mentors", "startdate"],
+        "observed": {
+            "name": record.name,
+            "status": record.status,
+            "mentor_count": record.mentor_count,
+            "startdate": record.podling.get("startdate"),
+            "months_in_incubation": record.months_in_incubation,
+        },
+    }
+    health_fields = [
+        "commits",
+        "unique_committers",
+        "unique_authors",
+        "dev_unique_posters",
+        "reports_count",
+        "avg_mentor_signoffs",
+        "releases",
+    ]
+    health_data: dict[str, Any] = {
+        "source": "apache-health",
+        "preferred_window": record.preferred_window,
+        "reporting_window": record.reporting_window,
+        "available": record.report_summary is not None,
+        "observed": _metric_snapshot(record.preferred_metrics, health_fields),
+    }
+    reporting_snapshot = _metric_snapshot(record.reporting_metrics, ["reports_count", "avg_mentor_signoffs"])
+    if reporting_snapshot:
+        health_data["reporting_observed"] = reporting_snapshot
+    return [podling_data, health_data]
+
+
+def _missing_context(record: Any, extra_missing: list[str] | None = None) -> list[str]:
+    missing: list[str] = []
+    if record.podling.get("startdate") is None:
+        missing.append("Podling start date.")
+    if record.report_summary is None:
+        missing.append("Recent apache-health report.")
+    if record.preferred_metrics is None:
+        missing.append("Recent community activity metrics.")
+    else:
+        for label, field in [
+            ("Commit activity count.", "commits"),
+            ("Active committer count.", "unique_committers"),
+            ("Mailing-list participation count.", "dev_unique_posters"),
+            ("Release count.", "releases"),
+        ]:
+            if record.preferred_metrics.get(field) is None:
+                missing.append(label)
+    if record.reporting_metrics is None:
+        missing.append("Recent Incubator reporting and mentor sign-off metrics.")
+    else:
+        for label, field in [
+            ("Incubator report count.", "reports_count"),
+            ("Average mentor sign-off count.", "avg_mentor_signoffs"),
+        ]:
+            if record.reporting_metrics.get(field) is None:
+                missing.append(label)
+    if extra_missing:
+        missing.extend(extra_missing)
+    return sorted(set(missing)) or ["No obvious missing source data for this opinion."]
+
+
+def _explainability(
+    record: Any,
+    reasoning: list[str],
+    *,
+    extra_missing: list[str] | None = None,
+    confidence: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "source_data_used": _source_data_used(record),
+        "reasoning": reasoning,
+        "confidence": confidence or confidence_for_record(record),
+        "missing": _missing_context(record, extra_missing),
+    }
+
+
+def _summary_explainability(
+    records: list[Any],
+    reasoning: list[str],
+    *,
+    example_podlings: list[str] | None = None,
+) -> dict[str, Any]:
+    reporting_records = [record for record in records if record.report_summary is not None]
+    missing_health = [record.name for record in records if record.report_summary is None]
+    low_mentor = [record.name for record in records if record.mentor_count <= 1]
+    return {
+        "source_data_used": [
+            {
+                "source": "podlings",
+                "fields": ["name", "status", "mentors", "startdate"],
+                "observed": {
+                    "podling_count": len(records),
+                    "thin_mentor_coverage_count": len(low_mentor),
+                    "example_podlings": (example_podlings or [record.name for record in records])[:5],
+                },
+            },
+            {
+                "source": "apache-health",
+                "fields": ["preferred health metrics", "reporting metrics"],
+                "observed": {
+                    "reporting_podling_count": len(reporting_records),
+                    "missing_health_report_count": len(missing_health),
+                    "missing_health_report_examples": missing_health[:5],
+                },
+            },
+        ],
+        "reasoning": reasoning,
+        "confidence": "high"
+        if records and len(reporting_records) == len(records)
+        else "medium"
+        if reporting_records
+        else "low",
+        "missing": (
+            ["Health reports for all podlings in scope."]
+            if missing_health
+            else ["No obvious missing source data for this opinion."]
+        ),
+    }
+
+
+def _supporting_signals(evaluation: dict[str, Any], record: Any) -> list[dict[str, Any]]:
+    return [
+        {
+            **signal.to_dict(),
+            "explainability": _explainability(record, [signal.reason]),
+        }
+        for signal in evaluation["signals"]
+    ]
 
 
 def tool_ipmc_watchlist(arguments: dict[str, Any]) -> dict[str, Any]:
@@ -160,6 +296,7 @@ def tool_ipmc_watchlist(arguments: dict[str, Any]) -> dict[str, Any]:
             continue
         summary = evaluation["signals"][0].reason if evaluation["signals"] else "No significant concerns detected."
         action = evaluation["signals"][0].recommended_action if evaluation["signals"] else "Continue normal oversight."
+        reasoning = [signal.reason for signal in evaluation["signals"]] or [summary]
         items.append(
             {
                 "podling": record.name,
@@ -168,8 +305,9 @@ def tool_ipmc_watchlist(arguments: dict[str, Any]) -> dict[str, Any]:
                 "watch_reasons": reasons,
                 "summary": summary,
                 "recommended_ipmc_action": action,
-                "supporting_signals": _supporting_signals(evaluation),
+                "supporting_signals": _supporting_signals(evaluation, record),
                 "confidence": confidence_for_record(record),
+                "explainability": _explainability(record, reasoning),
             }
         )
 
@@ -192,21 +330,37 @@ def tool_graduation_readiness(arguments: dict[str, Any]) -> dict[str, Any]:
     data = build_records(**sources)
     record = _record_by_name(data["records"], podling)
     readiness = readiness_assessment(record, strict_mode=strict_mode)
+    confidence = confidence_for_record(record)
     payload = {
         "podling": record.name,
         "assessment": readiness["assessment"],
-        "confidence": confidence_for_record(record),
+        "confidence": confidence,
         "summary": readiness["summary"],
         "strengths": readiness["strengths"],
         "blockers": readiness["blockers"],
         "missing_evidence": readiness["missing_evidence"],
         "dimension_scores": readiness["dimension_scores"],
         "recommended_next_steps": readiness["recommended_next_steps"],
+        "explainability": _explainability(
+            record,
+            [
+                readiness["summary"],
+                f"Dimension scores: {readiness['dimension_scores']}.",
+                f"Strength count: {len(readiness['strengths'])}; blocker count: {len(readiness['blockers'])}.",
+            ],
+            extra_missing=readiness["missing_evidence"],
+            confidence=confidence,
+        ),
     }
     if include_evidence:
         evaluation = evaluate_record(record)
         payload["evidence"] = [
-            {"statement": signal.reason, "source": signal.source} for signal in evaluation["signals"]
+            {
+                "statement": signal.reason,
+                "source": signal.source,
+                "explainability": _explainability(record, [signal.reason], confidence=confidence),
+            }
+            for signal in evaluation["signals"]
         ]
     return payload
 
@@ -268,6 +422,16 @@ def tool_podling_brief(arguments: dict[str, Any]) -> dict[str, Any]:
             str(data["podlings_source"].get("source")),
             str(data["health_source"].get("reports_dir")),
         ],
+        "explainability": _explainability(
+            record,
+            [
+                status_summary,
+                recent_trajectory,
+                readiness["summary"],
+                *concerns,
+            ],
+            extra_missing=readiness["missing_evidence"],
+        ),
     }
 
 
@@ -314,6 +478,7 @@ def tool_mentoring_attention_needed(arguments: dict[str, Any]) -> dict[str, Any]
             }
         ]
         primary = mentor_signals[0]
+        reasoning = [signal.reason for signal in mentor_signals]
         items.append(
             {
                 "podling": record.name,
@@ -322,6 +487,7 @@ def tool_mentoring_attention_needed(arguments: dict[str, Any]) -> dict[str, Any]
                 "summary": primary.reason,
                 "suggested_follow_up": primary.recommended_action,
                 "confidence": confidence_for_record(record),
+                "explainability": _explainability(record, reasoning),
             }
         )
 
@@ -376,6 +542,17 @@ def tool_community_health_summary(arguments: dict[str, Any]) -> dict[str, Any]:
         theme: dict[str, Any] = {
             "theme": "Low activity or weak reporting signals are concentrated in a subset of podlings.",
             "severity": "high",
+            "explainability": _summary_explainability(
+                records,
+                [
+                    "Podlings with high or critical evaluated severity were counted as watchlist overlap.",
+                    (
+                        "The theme is raised when at least one podling has high-risk activity, reporting, "
+                        "or related signals."
+                    ),
+                ],
+                example_podlings=weak_examples,
+            ),
         }
         if include_examples:
             theme["example_podlings"] = weak_examples[:5]
@@ -384,6 +561,14 @@ def tool_community_health_summary(arguments: dict[str, Any]) -> dict[str, Any]:
         theme = {
             "theme": "Mentor coverage and sign-off capacity appear uneven.",
             "severity": "medium",
+            "explainability": _summary_explainability(
+                records,
+                [
+                    "Podlings with zero or one listed mentor were counted as thin mentor coverage.",
+                    "The theme is raised when mentor coverage suggests IPMC capacity or follow-up risk.",
+                ],
+                example_podlings=mentor_risk,
+            ),
         }
         if include_examples:
             theme["example_podlings"] = mentor_risk[:5]
@@ -411,6 +596,18 @@ def tool_community_health_summary(arguments: dict[str, Any]) -> dict[str, Any]:
             "Review high-risk podlings with missing reports, thin mentor coverage, or weak activity.",
             "Use podling briefs and readiness checks to decide where graduation conversations are timely.",
         ],
+        "explainability": _summary_explainability(
+            records,
+            [
+                overall_summary,
+                (
+                    "Community health summary combines evaluated podling severity, activity trends, "
+                    "mentor coverage, and reporting coverage."
+                ),
+                f"Grouping requested: {group_by}. Scope requested: {scope}.",
+            ],
+            example_podlings=watchlist_overlap or mentor_risk or strong_examples,
+        ),
     }
 
 

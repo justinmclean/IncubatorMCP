@@ -64,6 +64,7 @@ It owns:
 - source argument resolution
 - lookup helpers
 - tool output shaping
+- explainability envelopes for derived opinions
 - the `TOOLS` registry
 
 The public tools are:
@@ -121,6 +122,7 @@ Tests are self-contained. They use temporary source data while importing the ins
 - This is an IPMC / Incubator oversight tool, not a board tool.
 - Source facts should remain distinguishable from derived opinions.
 - Tool outputs should be actionable but transparent about evidence and confidence.
+- Each opinionated output should expose source data used, human-readable reasoning, confidence, and missing evidence.
 - `ipmc/data.py` should stay free of MCP protocol concerns.
 - `ipmc/analysis.py` should be the single place for opinionated scoring rules.
 - `ipmc/protocol.py` should stay small and generic.
