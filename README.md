@@ -19,18 +19,10 @@ It exposes opinionated Incubator-level tools to help the IPMC:
 
 - Python 3.12+
 
-## Run
-
-```bash
-python3 server.py
-```
-
-The server uses `stdio`, so it is intended to be launched by an MCP client.
-
 ## Install
 
 ```bash
-python3 -m pip install -e .
+python3 -m pip install .
 ```
 
 For development tools:
@@ -38,6 +30,22 @@ For development tools:
 ```bash
 python3 -m pip install -e .[dev]
 ```
+
+## Run
+
+After installation, run the stdio MCP server with:
+
+```bash
+ipmc-mcp --health-source /path/to/incubator/tools/health/reports
+```
+
+For local development without installing first, you can still run:
+
+```bash
+python3 server.py --health-source /path/to/incubator/tools/health/reports
+```
+
+The server uses `stdio`, so it is intended to be launched by an MCP client.
 
 ## Example MCP client config
 
