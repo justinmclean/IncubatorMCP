@@ -30,15 +30,22 @@ This module is responsible for source loading and composition.
 It:
 
 - imports `PodlingsMCP` and `HealthMCP` modules
-- resolves the health reports directory from the tool `health_source`, `--health-source`, or `reports`
+- resolves podlings data from the tool `podlings_source`, `--podlings-source`, `IPMC_PODLINGS_SOURCE`, or the ASF `podlings.xml` URL
+- resolves the health reports directory from the tool `health_source`, `--health-source`, `IPMC_HEALTH_SOURCE`, or `reports`
 - loads podling lifecycle records
 - loads health report summaries
 - joins source data into `OversightRecord` objects
 - selects the preferred health window in this order: `3m`, `6m`, `12m`, `to-date`
 
-The default health reports directory can be configured with a startup argument:
+The default sources can be configured with startup arguments:
 
+- `--podlings-source`
 - `--health-source`
+
+They can also be configured with environment variables:
+
+- `IPMC_PODLINGS_SOURCE`
+- `IPMC_HEALTH_SOURCE`
 
 ### `ipmc/analysis.py`
 

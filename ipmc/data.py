@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import asdict, dataclass
 from datetime import date
@@ -11,6 +12,9 @@ from apache_health_mcp import parser as health_parser
 from podlings import data as podlings_data
 
 DEFAULT_HEALTH_SOURCE = "reports"
+PODLINGS_SOURCE_ENV = "IPMC_PODLINGS_SOURCE"
+HEALTH_SOURCE_ENV = "IPMC_HEALTH_SOURCE"
+_CONFIGURED_PODLINGS_SOURCE: str | None = None
 _CONFIGURED_HEALTH_SOURCE: str | None = None
 
 PREFERRED_WINDOW_ORDER = ("3m", "6m", "12m", "to-date")
@@ -26,15 +30,27 @@ TREND_LINE_RE = re.compile(r"^-\s+\*\*(?P<label>[^*]+):\*\*.*\((?P<trend>[^)]*)\
 
 def configure_defaults(
     *,
+    podlings_source: str | None = None,
     podlings_repo: str | None = None,
     health_repo: str | None = None,
     health_source: str | None = None,
 ) -> None:
-    global _CONFIGURED_HEALTH_SOURCE
+    global _CONFIGURED_HEALTH_SOURCE, _CONFIGURED_PODLINGS_SOURCE
 
-    _ = podlings_repo, health_repo
-    if health_source:
-        _CONFIGURED_HEALTH_SOURCE = health_source
+    resolved_podlings_source = podlings_source or podlings_repo
+    resolved_health_source = health_source or health_repo
+    if resolved_podlings_source:
+        _CONFIGURED_PODLINGS_SOURCE = resolved_podlings_source
+    if resolved_health_source:
+        _CONFIGURED_HEALTH_SOURCE = resolved_health_source
+
+
+def _env_default(name: str) -> str | None:
+    value = os.environ.get(name)
+    if value is None:
+        return None
+    stripped = value.strip()
+    return stripped or None
 
 
 def parse_iso_date(value: str | None) -> date | None:
@@ -164,13 +180,18 @@ def _with_fallback_trends(summary: dict[str, Any], raw_text: str | None) -> dict
 
 
 def load_podlings(podlings_source: str | None = None) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    source = podlings_source or podlings_data.DEFAULT_SOURCE
+    source = (
+        podlings_source
+        or _CONFIGURED_PODLINGS_SOURCE
+        or _env_default(PODLINGS_SOURCE_ENV)
+        or podlings_data.DEFAULT_SOURCE
+    )
     podlings, meta = podlings_data.parse_podlings(source)
     return [asdict(item) for item in podlings], meta
 
 
 def load_health_summaries(health_source: str | None = None) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:
-    reports_dir = health_source or _CONFIGURED_HEALTH_SOURCE or DEFAULT_HEALTH_SOURCE
+    reports_dir = health_source or _CONFIGURED_HEALTH_SOURCE or _env_default(HEALTH_SOURCE_ENV) or DEFAULT_HEALTH_SOURCE
     overview = health_parser.reports_overview(reports_dir)
     reports = health_parser.load_reports(reports_dir)
     summaries = {

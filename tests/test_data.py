@@ -98,6 +98,47 @@ class DataTests(unittest.TestCase):
         self.assertEqual(overview["reports_dir"], "/tmp/reports")
         self.assertEqual(overview["source"], "/tmp/reports")
 
+    def test_environment_overrides_source_defaults(self) -> None:
+        podlings_module = mock.Mock()
+        podlings_module.DEFAULT_SOURCE = "https://example.invalid/default-podlings.xml"
+        podlings_module.parse_podlings.return_value = ([], {"source": "/tmp/podlings.xml", "count": 0})
+        health_module = mock.Mock()
+        health_module.reports_overview.return_value = {"reports_dir": "/tmp/reports", "report_count": 0}
+        health_module.load_reports.return_value = []
+
+        with mock.patch.dict(
+            data.os.environ,
+            {
+                data.PODLINGS_SOURCE_ENV: "/tmp/podlings.xml",
+                data.HEALTH_SOURCE_ENV: "/tmp/reports",
+            },
+        ):
+            with mock.patch.object(data, "podlings_data", podlings_module):
+                podlings, podlings_meta = data.load_podlings()
+            with mock.patch.object(data, "health_parser", health_module):
+                summaries, health_meta = data.load_health_summaries()
+
+        self.assertEqual(podlings, [])
+        self.assertEqual(summaries, {})
+        podlings_module.parse_podlings.assert_called_once_with("/tmp/podlings.xml")
+        health_module.reports_overview.assert_called_once_with("/tmp/reports")
+        health_module.load_reports.assert_called_once_with("/tmp/reports")
+        self.assertEqual(podlings_meta["source"], "/tmp/podlings.xml")
+        self.assertEqual(health_meta["source"], "/tmp/reports")
+
+    def test_explicit_source_overrides_environment_defaults(self) -> None:
+        module = mock.Mock()
+        module.reports_overview.return_value = {"reports_dir": "/tmp/explicit", "report_count": 0}
+        module.load_reports.return_value = []
+
+        with mock.patch.dict(data.os.environ, {data.HEALTH_SOURCE_ENV: "/tmp/env"}):
+            with mock.patch.object(data, "health_parser", module):
+                summaries, overview = data.load_health_summaries("/tmp/explicit")
+
+        self.assertEqual(summaries, {})
+        module.reports_overview.assert_called_once_with("/tmp/explicit")
+        self.assertEqual(overview["source"], "/tmp/explicit")
+
     def test_default_health_source_matches_health_mcp_default(self) -> None:
         self.assertEqual(data.DEFAULT_HEALTH_SOURCE, "reports")
 

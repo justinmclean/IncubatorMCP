@@ -8,7 +8,7 @@ PODLINGS_SOURCE_PROPERTY = {
 }
 HEALTH_SOURCE_PROPERTY = {
     "type": "string",
-    "description": "Optional local path or source identifier for apache-health data",
+    "description": "Optional local path for apache-health report Markdown files",
 }
 AS_OF_DATE_PROPERTY = {
     "type": "string",

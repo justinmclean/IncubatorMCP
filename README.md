@@ -60,7 +60,7 @@ The server uses `stdio`, so it is intended to be launched by an MCP client.
       "command": "ipmc-mcp",
       "args": [
         "--health-source",
-        "/Users/justinmclean/incubator/tools/health/reports"
+        "/path/to/incubator/tools/health/reports"
       ]
     }
   }
@@ -74,7 +74,12 @@ The default runtime imports its source MCP libraries from installed packages:
 
 When installed with `pip`, these dependencies are pulled from their Git repositories. If you run `server.py` directly from a checkout instead, make the source packages importable with `PYTHONPATH` or install them first. Tool calls can still override the source data paths with `podlings_source` and `health_source`.
 
-Configure the default health reports directory with `--health-source`. If unset, it defaults to `reports`.
+Configure startup defaults with command-line arguments or environment variables:
+
+- `--podlings-source` or `IPMC_PODLINGS_SOURCE`: optional URL or local path for `podlings.xml`
+- `--health-source` or `IPMC_HEALTH_SOURCE`: local path for apache-health report Markdown files
+
+Per-tool `podlings_source` and `health_source` arguments take precedence over startup defaults. If `podlings_source` is unset, it defaults to the ASF `podlings.xml` URL. If `health_source` is unset, it defaults to `reports`.
 
 ## Test
 
@@ -142,7 +147,7 @@ Return per-podling recent deltas the IPMC should scan. This is delta-based only:
 Arguments:
 
 - `podlings_source`: optional URL or local file path for `podlings.xml`
-- `health_source`: optional reports directory for apache-health markdown reports
+- `health_source`: optional local reports directory for apache-health markdown reports
 - `as_of_date`: optional `YYYY-MM-DD` date for duration-sensitive views
 - `podling`: optional podling name filter
 - `limit`: optional max number of results
@@ -191,7 +196,7 @@ Return podlings that most need IPMC attention based on combined lifecycle and he
 Arguments:
 
 - `podlings_source`: optional URL or local file path for `podlings.xml`
-- `health_source`: optional reports directory for apache-health markdown reports
+- `health_source`: optional local reports directory for apache-health markdown reports
 - `as_of_date`: optional `YYYY-MM-DD` date for duration-sensitive views
 - `limit`: optional max number of results
 - `severity_at_least`: optional minimum severity filter
@@ -251,8 +256,8 @@ Arguments:
 
 ## Defaults
 
-- When omitted, `podlings_source` defaults to the ASF `podlings.xml` URL.
-- When omitted, `health_source` uses `--health-source`, or `reports` if that startup argument is unset.
+- When omitted, `podlings_source` uses `--podlings-source`, `IPMC_PODLINGS_SOURCE`, or the ASF `podlings.xml` URL.
+- When omitted, `health_source` uses `--health-source`, `IPMC_HEALTH_SOURCE`, or `reports` if no startup default is set.
 - Oversight views focus on current podlings by default.
 - Health analysis prefers the freshest available window in this order: `3m`, `6m`, `12m`, `to-date`.
 - Source metadata consistently exposes a `source` field. Health metadata also preserves the upstream `reports_dir`

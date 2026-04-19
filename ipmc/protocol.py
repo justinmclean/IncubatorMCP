@@ -217,6 +217,7 @@ def handle_payload(payload: Any) -> dict[str, Any] | list[dict[str, Any]]:
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Apache Incubator IPMC oversight MCP server")
+    parser.add_argument("--podlings-source", help="Optional URL or local path for podlings.xml")
     parser.add_argument("--health-source", help="Path to apache-health report Markdown files")
     return parser.parse_args(argv)
 
@@ -224,6 +225,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     configure_defaults(
+        podlings_source=args.podlings_source,
         health_source=args.health_source,
     )
 
