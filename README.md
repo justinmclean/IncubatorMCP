@@ -95,6 +95,45 @@ Coverage is scoped to the local `ipmc` package so imported source MCP libraries 
 
 See [docs/architecture.md](docs/architecture.md) for the module layout, runtime flow, and testing structure.
 
+## Usage Examples
+
+These examples show common IPMC workflows an MCP client can drive with the tools below.
+
+### Weekly IPMC Review Workflow
+
+Use this when preparing for a regular Incubator oversight pass:
+
+1. Call `recent_changes` to scan podlings with new lifecycle, report, or health deltas.
+2. Call `ipmc_watchlist` with `severity_at_least` set to the level you want to review in the meeting.
+3. Call `reporting_gaps` to separate reporting compliance issues from broader health concerns.
+4. Call `release_visibility` to identify podlings with governance-visible release concerns.
+5. For any podling that needs discussion, call `podling_brief` with `brief_format` set to `detailed`.
+
+This gives reviewers a short queue of what changed, what needs attention, and what evidence supports each opinion.
+
+### Mentor Checking Their Podlings
+
+Use this when a mentor wants a fast status check before following up with podling communities:
+
+1. Call `podling_brief` for each mentored podling, using `focus` to narrow the brief to areas like reporting, releases, mentoring, or community health.
+2. Call `graduation_readiness` for podlings that may be nearing graduation.
+3. Call `mentoring_attention_needed` to find podlings where missing sign-offs, mentor coverage, or other signals suggest intervention.
+4. Call `community_health_summary` with `include_examples` enabled when the mentor wants wider context across similar podlings.
+
+This keeps source facts, derived concerns, and confidence visible so mentors can decide what needs action versus clarification.
+
+### Generating a Board Summary
+
+This server is not a board tool, but it can help assemble Incubator context for a human-written board report:
+
+1. Call `community_health_summary` for the overall themes and examples.
+2. Call `ipmc_watchlist` for the highest-risk podlings that may deserve narrative attention.
+3. Call `reporting_gaps` and `release_visibility` to capture compliance and governance-visible issues separately.
+4. Call `podling_brief` for any podling that will be mentioned by name.
+5. Use each result's `explainability` object to distinguish source facts from IPMC-derived interpretation.
+
+The intended output is briefing material for IPMC judgment, not text that should be copied into a board report without review.
+
 ## Tools
 
 ### `recent_changes`
@@ -217,6 +256,8 @@ Arguments:
 - When omitted, `health_source` uses `--health-source`, or `reports` if that startup argument is unset.
 - Oversight views focus on current podlings by default.
 - Health analysis prefers the freshest available window in this order: `3m`, `6m`, `12m`, `to-date`.
+- Source metadata consistently exposes a `source` field. Health metadata also preserves the upstream `reports_dir`
+  field for compatibility with apache-health.
 
 ## Opinion Model
 

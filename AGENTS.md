@@ -26,8 +26,6 @@ This is an IPMC / Incubator oversight MCP, not a board tool.
   - Unit and integration tests
 - `tests/fixtures.py`
   - Shared Python test fixtures and temporary source helpers
-- `IPMCMCP.md`
-  - Conceptual design and positioning notes
 - `docs/architecture.md`
   - Module layout, runtime flow, design notes, and testing structure
 
@@ -66,7 +64,6 @@ Coverage is scoped to the local `ipmc` package so imported source MCP libraries 
 - Keep `server.py` minimal.
 - Add tests for any new tool, filter, output shape, or scoring branch.
 - Update `README.md` when changing public MCP tools or defaults.
-- Update `IPMCMCP.md` when changing the conceptual framing or oversight model.
 - Update `docs/architecture.md` when changing module boundaries or runtime flow.
 - Avoid duplicating raw source MCP APIs without adding IPMC-level interpretation.
 

@@ -127,6 +127,10 @@ def _resolve_sources(arguments: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _source_location(source_meta: dict[str, Any]) -> str:
+    return str(source_meta.get("source") or source_meta.get("reports_dir") or "")
+
+
 def _record_by_name(records: list[Any], podling: str) -> Any:
     for record in records:
         if record.name.casefold() == podling.casefold():
@@ -444,7 +448,7 @@ def tool_podling_brief(arguments: dict[str, Any]) -> dict[str, Any]:
         "outlook": readiness["summary"],
         "sources_used": [
             str(data["podlings_source"].get("source")),
-            str(data["health_source"].get("reports_dir")),
+            _source_location(data["health_source"]),
         ],
         "explainability": _explainability(
             record,

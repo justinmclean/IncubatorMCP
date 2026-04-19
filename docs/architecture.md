@@ -126,6 +126,7 @@ Tests are self-contained. They use temporary source data while importing the ins
 
 - This is an IPMC / Incubator oversight tool, not a board tool.
 - Source facts should remain distinguishable from derived opinions.
+- Source metadata should expose `source` consistently; package-specific metadata keys may be retained as aliases.
 - Narrow tools should stay narrow: recent changes are delta-only, reporting gaps are compliance-only, release visibility is governance-only, and stalled podlings require all stall conditions.
 - Tool outputs should be actionable but transparent about evidence and confidence.
 - Each opinionated output should expose source data used, human-readable reasoning, confidence, and missing evidence.

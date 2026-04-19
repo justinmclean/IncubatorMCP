@@ -22,6 +22,7 @@ class DataTests(unittest.TestCase):
     def test_preferred_window_helper(self) -> None:
         self.assertEqual(data._preferred_window(None), (None, None))
         self.assertEqual(data._preferred_window({"latest_metrics": {}}), (None, None))
+        self.assertEqual(data._select_window({"latest_metrics": {}}, ("3m",)), (None, None))
         self.assertEqual(
             data._preferred_window({"latest_metrics": {"6m": {"commits": 10}, "to-date": {"commits": 11}}}),
             ("6m", {"commits": 10}),
@@ -51,6 +52,7 @@ class DataTests(unittest.TestCase):
         self.assertEqual(podlings_meta["count"], 4)
         self.assertIn("alpha", summaries)
         self.assertEqual(health_meta["report_count"], 3)
+        self.assertEqual(health_meta["source"], health_meta["reports_dir"])
 
     def test_load_health_summaries_reads_current_trend_sections(self) -> None:
         report = mock.Mock()
@@ -94,6 +96,7 @@ class DataTests(unittest.TestCase):
 
         self.assertEqual(summaries, {})
         self.assertEqual(overview["reports_dir"], "/tmp/reports")
+        self.assertEqual(overview["source"], "/tmp/reports")
 
     def test_default_health_source_matches_health_mcp_default(self) -> None:
         self.assertEqual(data.DEFAULT_HEALTH_SOURCE, "reports")

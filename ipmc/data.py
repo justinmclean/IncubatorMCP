@@ -13,8 +13,8 @@ from podlings import data as podlings_data
 DEFAULT_HEALTH_SOURCE = "reports"
 _CONFIGURED_HEALTH_SOURCE: str | None = None
 
-WINDOW_PREFERENCE = ("3m", "6m", "12m", "to-date")
-REPORTING_WINDOW_PREFERENCE = ("12m", "6m", "to-date", "3m")
+PREFERRED_WINDOW_ORDER = ("3m", "6m", "12m", "to-date")
+REPORTING_WINDOW_ORDER = ("12m", "6m", "to-date", "3m")
 TREND_FIELD_LABELS = {
     "Releases (from list votes/results)": "releases",
     "Unique committers": "unique_committers",
@@ -85,26 +85,34 @@ class OversightRecord:
         return months_since(self.podling.get("startdate"), self.as_of_date)
 
 
-def _preferred_window(summary: dict[str, Any] | None) -> tuple[str | None, dict[str, Any] | None]:
+def _select_window(
+    summary: dict[str, Any] | None,
+    window_order: tuple[str, ...],
+) -> tuple[str | None, dict[str, Any] | None]:
     if not summary:
         return None, None
     latest_metrics = summary.get("latest_metrics") or {}
-    for window in WINDOW_PREFERENCE:
+    for window in window_order:
         metrics = latest_metrics.get(window)
         if metrics:
             return window, metrics
     return None, None
+
+
+def _preferred_window(summary: dict[str, Any] | None) -> tuple[str | None, dict[str, Any] | None]:
+    return _select_window(summary, PREFERRED_WINDOW_ORDER)
 
 
 def _reporting_window(summary: dict[str, Any] | None) -> tuple[str | None, dict[str, Any] | None]:
-    if not summary:
-        return None, None
-    latest_metrics = summary.get("latest_metrics") or {}
-    for window in REPORTING_WINDOW_PREFERENCE:
-        metrics = latest_metrics.get(window)
-        if metrics:
-            return window, metrics
-    return None, None
+    return _select_window(summary, REPORTING_WINDOW_ORDER)
+
+
+def _normalize_health_source_meta(overview: dict[str, Any], requested_source: str) -> dict[str, Any]:
+    meta = dict(overview)
+    source = meta.get("source") or meta.get("reports_dir") or requested_source
+    meta["source"] = source
+    meta.setdefault("reports_dir", source)
+    return meta
 
 
 def _trend_label(value: str) -> str | None:
@@ -172,7 +180,7 @@ def load_health_summaries(health_source: str | None = None) -> tuple[dict[str, d
         )
         for report in reports
     }
-    return summaries, overview
+    return summaries, _normalize_health_source_meta(overview, reports_dir)
 
 
 def build_records(
