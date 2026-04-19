@@ -18,8 +18,8 @@ classifiers = [
   "Topic :: Software Development",
 ]
 dependencies = [
-  "apache-health-mcp>=0.1.0",
-  "apache-podlings-mcp>=0.1.0",
+  "apache-health-mcp @ git+https://github.com/justinmclean/HealthMCP.git@master",
+  "apache-podlings-mcp @ git+https://github.com/justinmclean/PodlingsMCP.git@master",
 ]
 
 [project.scripts]
