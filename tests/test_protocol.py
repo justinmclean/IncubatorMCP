@@ -22,6 +22,10 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(
             tool_names,
             [
+                "recent_changes",
+                "reporting_gaps",
+                "release_visibility",
+                "stalled_podlings",
                 "ipmc_watchlist",
                 "graduation_readiness",
                 "podling_brief",
@@ -99,7 +103,7 @@ class ProtocolTests(unittest.TestCase):
             protocol.handle_message({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})["result"][
                 "tools"
             ][0]["name"],
-            "ipmc_watchlist",
+            "recent_changes",
         )
         error = protocol.handle_message({"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": []})
         self.assertEqual(error["error"]["code"], -32602)

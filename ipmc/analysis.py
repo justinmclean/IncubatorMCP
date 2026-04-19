@@ -11,6 +11,13 @@ SEVERITY_ORDER = {"low": 0, "medium": 1, "high": 2, "critical": 3}
 RELEASE_STALL_MIN_MONTHS = 6
 RELEASE_STALL_WINDOW = "12m"
 INCUBATION_DURATION_MIN_MONTHS = 36
+LONG_RELEASE_GAP_MONTHS = 6
+LONG_RELEASE_GAP_DAYS = LONG_RELEASE_GAP_MONTHS * 30
+HIGH_ACTIVITY_COMMITS = 25
+CONTRIBUTOR_BREADTH_MIN = 3
+STALLED_COMMITS_MAX = 10
+STALLED_COMMITTERS_MAX = 2
+STALLED_DISCUSSION_MESSAGES_MAX = 10
 
 
 def severity_value(value: str) -> int:
@@ -67,13 +74,23 @@ def _metric(metrics: dict[str, Any] | None, key: str) -> Any:
     return metrics.get(key)
 
 
+def _trend(metrics: dict[str, Any] | None, key: str) -> str | None:
+    if not metrics:
+        return None
+    value = (metrics.get("trends") or {}).get(key)
+    return value if value in {"up", "down", "mixed"} else None
+
+
+def _window_metrics(record: OversightRecord, window: str) -> dict[str, Any] | None:
+    return ((record.report_summary or {}).get("latest_metrics") or {}).get(window)
+
+
 def release_stall_age_eligible(months_in_incubation: int | None) -> bool:
     return months_in_incubation is None or months_in_incubation >= RELEASE_STALL_MIN_MONTHS
 
 
 def release_stall_releases(record: OversightRecord) -> Any:
-    latest_metrics = (record.report_summary or {}).get("latest_metrics") or {}
-    return _metric(latest_metrics.get(RELEASE_STALL_WINDOW), "releases")
+    return _metric(_window_metrics(record, RELEASE_STALL_WINDOW), "releases")
 
 
 def mature_podling_oversight(months_in_incubation: int | None) -> bool:
@@ -254,6 +271,281 @@ def evaluate_record(record: OversightRecord) -> dict[str, Any]:
         "severity": max_severity,
         "trend": trend,
     }
+
+
+def recent_change_events(record: OversightRecord) -> list[dict[str, Any]]:
+    """Return only explicit non-flat recent deltas from source health trends."""
+    metrics = record.preferred_metrics
+    reporting_metrics = record.reporting_metrics
+    events: list[dict[str, Any]] = []
+
+    for field, label in (
+        ("commits", "commits"),
+        ("unique_committers", "unique_committers"),
+    ):
+        trend = _trend(metrics, field)
+        if not trend:
+            continue
+        direction = "spike" if trend == "up" else "drop" if trend == "down" else "changed"
+        events.append(
+            {
+                "change": f"{label}_{direction}",
+                "field": field,
+                "direction": trend,
+                "current_value": _metric(metrics, field),
+                "window": record.preferred_window,
+                "why_it_matters": f"{label.replace('_', ' ').capitalize()} {direction} in the recent health window.",
+            }
+        )
+
+    trend = _trend(reporting_metrics, "avg_mentor_signoffs")
+    if trend:
+        direction = "increased" if trend == "up" else "decreased" if trend == "down" else "changed"
+        events.append(
+            {
+                "change": f"mentor_signoffs_{direction}",
+                "field": "avg_mentor_signoffs",
+                "direction": trend,
+                "current_value": _metric(reporting_metrics, "avg_mentor_signoffs"),
+                "window": record.reporting_window,
+                "why_it_matters": f"Mentor sign-offs {direction} in the reporting window.",
+            }
+        )
+
+    trend = _trend(reporting_metrics, "reports_count")
+    if trend:
+        reports_count = _metric(reporting_metrics, "reports_count")
+        if trend == "down" and reports_count == 0:
+            change = "reports_newly_missing"
+            why = "Reporting presence dropped to zero in the reporting window."
+        else:
+            direction = "increased" if trend == "up" else "decreased" if trend == "down" else "changed"
+            change = f"reporting_presence_{direction}"
+            why = f"Reporting presence {direction} in the reporting window."
+        events.append(
+            {
+                "change": change,
+                "field": "reports_count",
+                "direction": trend,
+                "current_value": reports_count,
+                "window": record.reporting_window,
+                "why_it_matters": why,
+            }
+        )
+
+    trend = _trend(metrics, "releases")
+    if trend:
+        releases = _metric(metrics, "releases")
+        if trend == "up" and (releases or 0) > 0:
+            change = "releases_appeared"
+            why = "Release visibility appeared or increased in the recent health window."
+        elif trend == "down" and releases == 0:
+            change = "releases_disappeared"
+            why = "Release visibility dropped to zero in the recent health window."
+        else:
+            direction = "increased" if trend == "up" else "decreased" if trend == "down" else "changed"
+            change = f"releases_{direction}"
+            why = f"Release visibility {direction} in the recent health window."
+        events.append(
+            {
+                "change": change,
+                "field": "releases",
+                "direction": trend,
+                "current_value": releases,
+                "window": record.preferred_window,
+                "why_it_matters": why,
+            }
+        )
+
+    return events
+
+
+def reporting_gap_signals(record: OversightRecord) -> list[dict[str, Any]]:
+    """Return compliance-only reporting gaps; activity metrics are intentionally ignored."""
+    if record.report_summary is None:
+        return [
+            {
+                "gap": "missing_health_report",
+                "severity": "high",
+                "current_value": None,
+                "window": None,
+                "reason": "No apache-health report is available to verify recent Incubator reporting.",
+            }
+        ]
+
+    reporting_metrics = record.reporting_metrics
+    reports_count = _metric(reporting_metrics, "reports_count")
+    trend = _trend(reporting_metrics, "reports_count")
+    reporting_window = record.reporting_window
+    reporting_window_too_short = reporting_window == "3m"
+    signals: list[dict[str, Any]] = []
+
+    if reports_count is None:
+        signals.append(
+            {
+                "gap": "reporting_metric_missing",
+                "severity": "medium",
+                "current_value": None,
+                "window": record.reporting_window,
+                "reason": "Incubator report count is absent from the reporting health window.",
+            }
+        )
+    elif reports_count == 0 and not reporting_window_too_short:
+        signals.append(
+            {
+                "gap": "missing_recent_reports",
+                "severity": "high",
+                "current_value": reports_count,
+                "window": record.reporting_window,
+                "reason": "No Incubator reports were seen in the reporting health window.",
+            }
+        )
+
+    if trend == "down" and reports_count == 0 and not reporting_window_too_short:
+        signals.append(
+            {
+                "gap": "newly_missing_reports",
+                "severity": "critical",
+                "current_value": reports_count,
+                "window": record.reporting_window,
+                "reason": "Report presence declined and is now zero.",
+            }
+        )
+    elif trend in {"down", "mixed"} and not reporting_window_too_short:
+        signals.append(
+            {
+                "gap": "inconsistent_reporting_pattern",
+                "severity": "medium",
+                "current_value": reports_count,
+                "window": record.reporting_window,
+                "reason": "Report presence is not steady in the reporting trend data.",
+            }
+        )
+
+    deduped: list[dict[str, Any]] = []
+    seen = set()
+    for signal in signals:
+        key = (signal["gap"], signal["reason"])
+        if key not in seen:
+            deduped.append(signal)
+            seen.add(key)
+    return deduped
+
+
+def release_visibility_signals(record: OversightRecord) -> list[dict[str, Any]]:
+    """Return release-governance visibility concerns without general health scoring."""
+    metrics_12m = _window_metrics(record, RELEASE_STALL_WINDOW)
+    metrics = metrics_12m or record.preferred_metrics
+    releases = _metric(metrics_12m, "releases")
+    gap_days = _metric(metrics_12m, "median_gap_days")
+    preferred = record.preferred_metrics or {}
+    signals: list[dict[str, Any]] = []
+
+    if releases == 0:
+        signals.append(
+            {
+                "signal": "no_releases_12m",
+                "severity": "high",
+                "current_value": releases,
+                "window": RELEASE_STALL_WINDOW,
+                "reason": "No releases are visible in the 12-month health window.",
+            }
+        )
+    if gap_days is not None and gap_days >= LONG_RELEASE_GAP_DAYS:
+        signals.append(
+            {
+                "signal": "long_release_gap",
+                "severity": "medium",
+                "current_value": gap_days,
+                "window": RELEASE_STALL_WINDOW,
+                "reason": f"Median release gap is at least {LONG_RELEASE_GAP_MONTHS} months.",
+            }
+        )
+
+    if releases == 0:
+        commits = preferred.get("commits") or 0
+        unique_committers = preferred.get("unique_committers") or 0
+        unique_authors = preferred.get("unique_authors") or 0
+        if commits >= HIGH_ACTIVITY_COMMITS:
+            signals.append(
+                {
+                    "signal": "high_activity_no_releases",
+                    "severity": "high",
+                    "current_value": {"commits": commits, "releases": releases},
+                    "window": record.preferred_window,
+                    "reason": "Commit activity is high but no releases are visible in the 12-month window.",
+                }
+            )
+        if max(unique_committers, unique_authors) >= CONTRIBUTOR_BREADTH_MIN:
+            signals.append(
+                {
+                    "signal": "contributors_no_releases",
+                    "severity": "medium",
+                    "current_value": {
+                        "unique_committers": unique_committers,
+                        "unique_authors": unique_authors,
+                        "releases": releases,
+                    },
+                    "window": record.preferred_window,
+                    "reason": "Contributor breadth is visible but releases are not.",
+                }
+            )
+
+    if metrics is None and record.report_summary is None:
+        signals.append(
+            {
+                "signal": "release_visibility_unknown",
+                "severity": "medium",
+                "current_value": None,
+                "window": RELEASE_STALL_WINDOW,
+                "reason": "No health report is available to verify release visibility.",
+            }
+        )
+    return signals
+
+
+def stalled_podling_signal(record: OversightRecord) -> dict[str, Any] | None:
+    """Return a strict 'nothing is moving' signal, not a general risk score."""
+    metrics = record.preferred_metrics
+    if not metrics:
+        return None
+
+    releases_12m = release_stall_releases(record)
+    commits = metrics.get("commits")
+    unique_committers = metrics.get("unique_committers")
+    dev_messages = metrics.get("dev_messages")
+    dev_posters = metrics.get("dev_unique_posters")
+    low_discussion = dev_messages is not None and dev_messages <= STALLED_DISCUSSION_MESSAGES_MAX
+    if (
+        commits is not None
+        and commits <= STALLED_COMMITS_MAX
+        and unique_committers is not None
+        and unique_committers <= STALLED_COMMITTERS_MAX
+        and releases_12m == 0
+    ):
+        discussion_signal = "low_discussion" if low_discussion else "discussion_without_delivery"
+        return {
+            "signal": "stalled",
+            "severity": "high",
+            "definition_matched": [
+                "low_commits",
+                "low_committers",
+                discussion_signal,
+                "no_releases",
+            ],
+            "observed": {
+                "commits": commits,
+                "unique_committers": unique_committers,
+                "dev_messages": dev_messages,
+                "dev_unique_posters": dev_posters,
+                "releases_12m": releases_12m,
+            },
+            "reason": (
+                "Low commits, low committer breadth, and no 12-month releases are present; "
+                "discussion is not translating into delivery."
+            ),
+        }
+    return None
 
 
 def confidence_for_record(record: OversightRecord) -> str:

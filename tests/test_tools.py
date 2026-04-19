@@ -336,6 +336,224 @@ class ToolTests(unittest.TestCase):
         self.assertEqual(payload["strong_patterns"], [])
         self.assertEqual(payload["risk_themes"], [])
 
+    def test_recent_changes_returns_only_delta_events(self) -> None:
+        record = OversightRecord(
+            podling={"name": "Motion", "status": "current", "mentors": ["A", "B"], "startdate": "2025-01-01"},
+            report_summary={"latest_metrics": {"3m": {}, "12m": {}}},
+            preferred_window="3m",
+            preferred_metrics={
+                "commits": 42,
+                "unique_committers": 4,
+                "releases": 1,
+                "trends": {
+                    "commits": "up",
+                    "unique_committers": "flat",
+                    "releases": "down",
+                },
+            },
+            reporting_window="12m",
+            reporting_metrics={
+                "reports_count": 0,
+                "avg_mentor_signoffs": 1.0,
+                "trends": {"reports_count": "down", "avg_mentor_signoffs": "flat"},
+            },
+            as_of_date="2026-04-18",
+        )
+        data = {
+            "records": [record],
+            "podlings_source": {"source": "podlings.xml"},
+            "health_source": {"reports_dir": "reports"},
+        }
+        with mock.patch.object(tools, "build_records", return_value=data):
+            payload = tools.tool_recent_changes({})
+
+        changes = payload["items"][0]["changes"]
+        self.assertEqual(
+            [change["change"] for change in changes],
+            ["commits_spike", "reports_newly_missing", "releases_decreased"],
+        )
+        self.assertNotIn("unique_committers", [change["field"] for change in changes])
+        assert_explainability(self, payload["items"][0]["explainability"])
+
+    def test_reporting_gaps_are_compliance_only(self) -> None:
+        record = OversightRecord(
+            podling={"name": "Reporter", "status": "current", "mentors": ["A", "B"], "startdate": "2025-01-01"},
+            report_summary={"latest_metrics": {"3m": {"reports_count": 0}, "12m": {"reports_count": 0}}},
+            preferred_window="3m",
+            preferred_metrics={
+                "commits": 0,
+                "unique_committers": 0,
+                "dev_unique_posters": 0,
+                "releases": 0,
+                "trends": {"commits": "down"},
+            },
+            reporting_window="12m",
+            reporting_metrics={"reports_count": 0, "trends": {"reports_count": "down"}},
+            as_of_date="2026-04-18",
+        )
+        data = {
+            "records": [record],
+            "podlings_source": {"source": "podlings.xml"},
+            "health_source": {"reports_dir": "reports"},
+        }
+        with mock.patch.object(tools, "build_records", return_value=data):
+            payload = tools.tool_reporting_gaps({})
+
+        gaps = [gap["gap"] for gap in payload["items"][0]["gaps"]]
+        self.assertIn("missing_recent_reports", gaps)
+        self.assertIn("newly_missing_reports", gaps)
+        self.assertNotIn("low_activity", gaps)
+        assert_explainability(self, payload["items"][0]["explainability"])
+
+    def test_reporting_gaps_allows_zero_reports_in_three_month_window(self) -> None:
+        record = OversightRecord(
+            podling={"name": "Quarterly", "status": "current", "mentors": ["A", "B"], "startdate": "2025-01-01"},
+            report_summary={"latest_metrics": {"3m": {"reports_count": 0}}},
+            preferred_window="3m",
+            preferred_metrics={"commits": 12, "unique_committers": 3, "dev_unique_posters": 5, "releases": 1},
+            reporting_window="3m",
+            reporting_metrics={"reports_count": 0, "trends": {"reports_count": "down"}},
+            as_of_date="2026-04-18",
+        )
+        data = {
+            "records": [record],
+            "podlings_source": {"source": "podlings.xml"},
+            "health_source": {"reports_dir": "reports"},
+        }
+        with mock.patch.object(tools, "build_records", return_value=data):
+            payload = tools.tool_reporting_gaps({})
+
+        self.assertEqual(payload["items"], [])
+
+    def test_reporting_gaps_does_not_treat_rolling_windows_as_inconsistent(self) -> None:
+        record = OversightRecord(
+            podling={"name": "Rolling", "status": "current", "mentors": ["A", "B"], "startdate": "2025-01-01"},
+            report_summary={
+                "latest_metrics": {
+                    "3m": {"reports_count": 0},
+                    "6m": {"reports_count": 1},
+                    "12m": {"reports_count": 2},
+                }
+            },
+            preferred_window="3m",
+            preferred_metrics={"commits": 30, "unique_committers": 4, "dev_unique_posters": 8, "releases": 1},
+            reporting_window="12m",
+            reporting_metrics={"reports_count": 2, "trends": {"reports_count": "flat"}},
+            as_of_date="2026-04-18",
+        )
+        data = {
+            "records": [record],
+            "podlings_source": {"source": "podlings.xml"},
+            "health_source": {"reports_dir": "reports"},
+        }
+        with mock.patch.object(tools, "build_records", return_value=data):
+            payload = tools.tool_reporting_gaps({})
+
+        self.assertEqual(payload["items"], [])
+
+    def test_release_visibility_uses_governance_lens(self) -> None:
+        record = OversightRecord(
+            podling={"name": "Shipping", "status": "current", "mentors": ["A", "B"], "startdate": "2024-01-01"},
+            report_summary={
+                "latest_metrics": {
+                    "3m": {"commits": 30, "unique_committers": 4, "unique_authors": 5, "releases": 0},
+                    "12m": {"releases": 0, "median_gap_days": 220.0},
+                }
+            },
+            preferred_window="3m",
+            preferred_metrics={"commits": 30, "unique_committers": 4, "unique_authors": 5, "releases": 0},
+            reporting_window="12m",
+            reporting_metrics={"reports_count": 1, "avg_mentor_signoffs": 2.0},
+            as_of_date="2026-04-18",
+        )
+        data = {
+            "records": [record],
+            "podlings_source": {"source": "podlings.xml"},
+            "health_source": {"reports_dir": "reports"},
+        }
+        with mock.patch.object(tools, "build_records", return_value=data):
+            payload = tools.tool_release_visibility({})
+
+        signals = [signal["signal"] for signal in payload["items"][0]["signals"]]
+        self.assertIn("no_releases_12m", signals)
+        self.assertIn("long_release_gap", signals)
+        self.assertIn("high_activity_no_releases", signals)
+        self.assertIn("contributors_no_releases", signals)
+        assert_explainability(self, payload["items"][0]["explainability"])
+
+    def test_stalled_podlings_require_all_stall_conditions(self) -> None:
+        stalled = OversightRecord(
+            podling={"name": "Stalled", "status": "current", "mentors": ["A", "B"], "startdate": "2024-01-01"},
+            report_summary={"latest_metrics": {"3m": {}, "12m": {"releases": 0}}},
+            preferred_window="3m",
+            preferred_metrics={
+                "commits": 5,
+                "unique_committers": 1,
+                "dev_messages": 2,
+                "dev_unique_posters": 2,
+                "releases": 0,
+            },
+            reporting_window="12m",
+            reporting_metrics={"reports_count": 1, "avg_mentor_signoffs": 2.0},
+            as_of_date="2026-04-18",
+        )
+        moving = OversightRecord(
+            podling={"name": "Moving", "status": "current", "mentors": ["A", "B"], "startdate": "2024-01-01"},
+            report_summary={"latest_metrics": {"3m": {}, "12m": {"releases": 0}}},
+            preferred_window="3m",
+            preferred_metrics={
+                "commits": 5,
+                "unique_committers": 3,
+                "dev_messages": 50,
+                "dev_unique_posters": 5,
+                "releases": 0,
+            },
+            reporting_window="12m",
+            reporting_metrics={"reports_count": 1, "avg_mentor_signoffs": 2.0},
+            as_of_date="2026-04-18",
+        )
+        data = {
+            "records": [moving, stalled],
+            "podlings_source": {"source": "podlings.xml"},
+            "health_source": {"reports_dir": "reports"},
+        }
+        with mock.patch.object(tools, "build_records", return_value=data):
+            payload = tools.tool_stalled_podlings({})
+
+        self.assertEqual([item["podling"] for item in payload["items"]], ["Stalled"])
+        self.assertEqual(
+            payload["items"][0]["definition_matched"],
+            ["low_commits", "low_committers", "low_discussion", "no_releases"],
+        )
+        assert_explainability(self, payload["items"][0]["explainability"])
+
+    def test_stalled_podlings_can_have_discussion_without_delivery(self) -> None:
+        record = OversightRecord(
+            podling={"name": "Talkative", "status": "current", "mentors": ["A", "B"], "startdate": "2024-01-01"},
+            report_summary={"latest_metrics": {"3m": {}, "12m": {"releases": 0}}},
+            preferred_window="3m",
+            preferred_metrics={
+                "commits": 0,
+                "unique_committers": 0,
+                "dev_messages": 92,
+                "dev_unique_posters": 7,
+                "releases": 0,
+            },
+            reporting_window="12m",
+            reporting_metrics={"reports_count": 1, "avg_mentor_signoffs": 2.0},
+            as_of_date="2026-04-18",
+        )
+        data = {
+            "records": [record],
+            "podlings_source": {"source": "podlings.xml"},
+            "health_source": {"reports_dir": "reports"},
+        }
+        with mock.patch.object(tools, "build_records", return_value=data):
+            payload = tools.tool_stalled_podlings({})
+
+        self.assertEqual(payload["items"][0]["podling"], "Talkative")
+        self.assertIn("discussion_without_delivery", payload["items"][0]["definition_matched"])
+
     def test_validation_rejects_invalid_choice(self) -> None:
         with self.assertRaises(ValueError):
             tools.tool_podling_brief({"podling": "Alpha", "brief_format": "verbose"})

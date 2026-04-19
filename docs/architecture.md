@@ -9,7 +9,7 @@ It does not replace the source MCPs. Instead, it composes:
 - `apache-podlings-mcp` for podling lifecycle and status data
 - `apache-health-mcp` for parsed health-report metrics
 
-The resulting tools provide IPMC-oriented synthesis: watchlists, graduation readiness, podling briefs, mentoring attention, and community-health summaries.
+The resulting tools provide IPMC-oriented synthesis: recent-change scans, reporting-gap checks, release-visibility checks, stalled-podling detection, watchlists, graduation readiness, podling briefs, mentoring attention, and community-health summaries.
 
 ## Runtime Flow
 
@@ -47,6 +47,7 @@ This module owns derived IPMC opinions.
 It:
 
 - evaluates podling risk signals
+- identifies narrow recent-change, reporting-gap, release-visibility, and stalled-podling signals
 - derives severity and trend
 - estimates confidence
 - assesses graduation readiness
@@ -69,6 +70,10 @@ It owns:
 
 The public tools are:
 
+- `recent_changes`
+- `reporting_gaps`
+- `release_visibility`
+- `stalled_podlings`
 - `ipmc_watchlist`
 - `graduation_readiness`
 - `podling_brief`
@@ -121,6 +126,7 @@ Tests are self-contained. They use temporary source data while importing the ins
 
 - This is an IPMC / Incubator oversight tool, not a board tool.
 - Source facts should remain distinguishable from derived opinions.
+- Narrow tools should stay narrow: recent changes are delta-only, reporting gaps are compliance-only, release visibility is governance-only, and stalled podlings require all stall conditions.
 - Tool outputs should be actionable but transparent about evidence and confidence.
 - Each opinionated output should expose source data used, human-readable reasoning, confidence, and missing evidence.
 - `ipmc/data.py` should stay free of MCP protocol concerns.

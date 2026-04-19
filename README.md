@@ -10,6 +10,10 @@ It composes:
 It exposes opinionated Incubator-level tools to help the IPMC:
 
 - identify podlings needing attention
+- scan recent podling-level changes
+- find Incubator reporting gaps
+- review release visibility through a governance lens
+- identify tightly-defined stalled podlings
 - assess graduation readiness
 - generate podling briefings
 - flag mentoring intervention needs
@@ -92,6 +96,55 @@ Coverage is scoped to the local `ipmc` package so imported source MCP libraries 
 See [docs/architecture.md](docs/architecture.md) for the module layout, runtime flow, and testing structure.
 
 ## Tools
+
+### `recent_changes`
+
+Return per-podling recent deltas the IPMC should scan. This is delta-based only: unchanged/static fields are excluded.
+
+Arguments:
+
+- `podlings_source`: optional URL or local file path for `podlings.xml`
+- `health_source`: optional reports directory for apache-health markdown reports
+- `as_of_date`: optional `YYYY-MM-DD` date for duration-sensitive views
+- `podling`: optional podling name filter
+- `limit`: optional max number of results
+
+### `reporting_gaps`
+
+Return podlings with Incubator reporting compliance gaps. Activity signals are intentionally excluded.
+
+Arguments:
+
+- `podlings_source`
+- `health_source`
+- `as_of_date`
+- `podling`: optional podling name filter
+- `limit`: optional max number of results
+- `include_gaps`: optional gap filter list
+
+### `release_visibility`
+
+Return release-governance visibility concerns, including no releases in 12 months, release gaps of at least 6 months, and activity-without-release mismatches.
+
+Arguments:
+
+- `podlings_source`
+- `health_source`
+- `as_of_date`
+- `podling`: optional podling name filter
+- `limit`: optional max number of results
+- `include_signals`: optional release visibility signal filter list
+
+### `stalled_podlings`
+
+Return podlings matching the strict stalled definition: low commits, low committers, low discussion, and no 12-month releases. This is a narrow subset signal, not a replacement for the watchlist.
+
+Arguments:
+
+- `podlings_source`
+- `health_source`
+- `as_of_date`
+- `limit`: optional max number of results
 
 ### `ipmc_watchlist`
 

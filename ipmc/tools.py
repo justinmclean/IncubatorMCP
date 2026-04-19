@@ -9,7 +9,11 @@ from .analysis import (
     confidence_for_record,
     evaluate_record,
     readiness_assessment,
+    recent_change_events,
+    release_visibility_signals,
+    reporting_gap_signals,
     severity_at_least,
+    stalled_podling_signal,
 )
 from .data import build_records
 
@@ -37,6 +41,20 @@ WATCHLIST_REASONS = {
     "governance_concern",
     "community_fragility",
     "unknown_status",
+}
+REPORTING_GAPS = {
+    "missing_health_report",
+    "missing_recent_reports",
+    "newly_missing_reports",
+    "inconsistent_reporting_pattern",
+    "reporting_metric_missing",
+}
+RELEASE_VISIBILITY_SIGNALS = {
+    "no_releases_12m",
+    "long_release_gap",
+    "high_activity_no_releases",
+    "contributors_no_releases",
+    "release_visibility_unknown",
 }
 
 
@@ -114,6 +132,12 @@ def _record_by_name(records: list[Any], podling: str) -> Any:
         if record.name.casefold() == podling.casefold():
             return record
     raise ValueError(f"Podling '{podling}' not found")
+
+
+def _maybe_filter_podling(records: list[Any], podling: str | None) -> list[Any]:
+    if podling is None:
+        return records
+    return [_record_by_name(records, podling)]
 
 
 def _watch_reasons(record: Any, evaluation: dict[str, Any]) -> list[str]:
@@ -499,6 +523,177 @@ def tool_mentoring_attention_needed(arguments: dict[str, Any]) -> dict[str, Any]
     }
 
 
+def tool_recent_changes(arguments: dict[str, Any]) -> dict[str, Any]:
+    sources = _resolve_sources(arguments)
+    podling = optional_string(arguments, "podling")
+    limit = optional_integer(arguments, "limit") or 25
+
+    data = build_records(**sources)
+    records = _maybe_filter_podling(data["records"], podling)
+    items = []
+    for record in records:
+        changes = recent_change_events(record)
+        if not changes:
+            continue
+        items.append(
+            {
+                "podling": record.name,
+                "preferred_window": record.preferred_window,
+                "reporting_window": record.reporting_window,
+                "changes": changes,
+                "summary": f"{record.name} has {len(changes)} explicit recent change(s) in tracked IPMC scan fields.",
+                "explainability": _explainability(
+                    record,
+                    [
+                        "Only non-flat source trend fields are included.",
+                        "Static metrics and unchanged fields are excluded from this tool.",
+                    ],
+                ),
+            }
+        )
+
+    items.sort(key=lambda item: (-len(item["changes"]), item["podling"].casefold()))
+    return {
+        "podlings_source": data["podlings_source"],
+        "health_source": data["health_source"],
+        "generated_for": "recent_changes",
+        "as_of_date": sources["as_of_date"],
+        "items": items[:limit],
+    }
+
+
+def tool_reporting_gaps(arguments: dict[str, Any]) -> dict[str, Any]:
+    sources = _resolve_sources(arguments)
+    podling = optional_string(arguments, "podling")
+    limit = optional_integer(arguments, "limit") or 25
+    include_gaps = optional_list_of_choices(arguments, "include_gaps", REPORTING_GAPS)
+
+    data = build_records(**sources)
+    records = _maybe_filter_podling(data["records"], podling)
+    items = []
+    for record in records:
+        gaps = reporting_gap_signals(record)
+        if include_gaps:
+            gaps = [gap for gap in gaps if gap["gap"] in include_gaps]
+        if not gaps:
+            continue
+        severity = max(gaps, key=lambda gap: SEVERITIES_ORDER[gap["severity"]])["severity"]
+        items.append(
+            {
+                "podling": record.name,
+                "severity": severity,
+                "reporting_window": record.reporting_window,
+                "gaps": gaps,
+                "summary": gaps[0]["reason"],
+                "recommended_ipmc_action": "Follow up on Incubator reporting compliance and report presence.",
+                "explainability": _explainability(
+                    record,
+                    [
+                        "Only Incubator reporting presence and reporting trend fields are considered.",
+                        "Activity signals are intentionally excluded from this tool.",
+                    ],
+                    confidence=confidence_for_record(record),
+                ),
+            }
+        )
+
+    items.sort(key=lambda item: (-SEVERITIES_ORDER[item["severity"]], item["podling"].casefold()))
+    return {
+        "podlings_source": data["podlings_source"],
+        "health_source": data["health_source"],
+        "generated_for": "reporting_gaps",
+        "as_of_date": sources["as_of_date"],
+        "items": items[:limit],
+    }
+
+
+def tool_release_visibility(arguments: dict[str, Any]) -> dict[str, Any]:
+    sources = _resolve_sources(arguments)
+    podling = optional_string(arguments, "podling")
+    limit = optional_integer(arguments, "limit") or 25
+    include_signals = optional_list_of_choices(arguments, "include_signals", RELEASE_VISIBILITY_SIGNALS)
+
+    data = build_records(**sources)
+    records = _maybe_filter_podling(data["records"], podling)
+    items = []
+    for record in records:
+        signals = release_visibility_signals(record)
+        if include_signals:
+            signals = [signal for signal in signals if signal["signal"] in include_signals]
+        if not signals:
+            continue
+        severity = max(signals, key=lambda signal: SEVERITIES_ORDER[signal["severity"]])["severity"]
+        items.append(
+            {
+                "podling": record.name,
+                "severity": severity,
+                "signals": signals,
+                "summary": signals[0]["reason"],
+                "recommended_ipmc_action": "Check whether release cadence and release governance are visible enough.",
+                "explainability": _explainability(
+                    record,
+                    [
+                        "Only release visibility and release-governance mismatch checks are considered.",
+                        "General activity is used only to detect activity-without-release mismatches.",
+                    ],
+                ),
+            }
+        )
+
+    items.sort(key=lambda item: (-SEVERITIES_ORDER[item["severity"]], item["podling"].casefold()))
+    return {
+        "podlings_source": data["podlings_source"],
+        "health_source": data["health_source"],
+        "generated_for": "release_visibility",
+        "as_of_date": sources["as_of_date"],
+        "items": items[:limit],
+    }
+
+
+def tool_stalled_podlings(arguments: dict[str, Any]) -> dict[str, Any]:
+    sources = _resolve_sources(arguments)
+    limit = optional_integer(arguments, "limit") or 25
+
+    data = build_records(**sources)
+    items = []
+    for record in data["records"]:
+        signal = stalled_podling_signal(record)
+        if signal is None:
+            continue
+        items.append(
+            {
+                "podling": record.name,
+                "severity": signal["severity"],
+                "definition_matched": signal["definition_matched"],
+                "observed": signal["observed"],
+                "summary": signal["reason"],
+                "recommended_ipmc_action": (
+                    "Confirm whether the podling is effectively inactive or activity moved elsewhere."
+                ),
+                "explainability": _explainability(
+                    record,
+                    [
+                        (
+                            "The stalled signal is emitted only when low commits, low committers, "
+                            "and no releases are all present, with low discussion or discussion "
+                            "that is not translating into delivery."
+                        ),
+                        "This is intentionally narrower than the IPMC watchlist.",
+                    ],
+                ),
+            }
+        )
+
+    items.sort(key=lambda item: item["podling"].casefold())
+    return {
+        "podlings_source": data["podlings_source"],
+        "health_source": data["health_source"],
+        "generated_for": "stalled_podlings",
+        "as_of_date": sources["as_of_date"],
+        "items": items[:limit],
+    }
+
+
 def tool_community_health_summary(arguments: dict[str, Any]) -> dict[str, Any]:
     sources = _resolve_sources(arguments)
     scope = optional_choice(arguments, "scope", SCOPES) or "all_podlings"
@@ -615,6 +810,28 @@ SEVERITIES_ORDER = {"low": 0, "medium": 1, "high": 2, "critical": 3}
 
 
 TOOLS: dict[str, dict[str, Any]] = {
+    "recent_changes": schemas.tool_definition(
+        description=("Return per-podling recent deltas the IPMC should scan, excluding unchanged or static fields."),
+        handler=tool_recent_changes,
+        properties=schemas.recent_changes_properties(),
+    ),
+    "reporting_gaps": schemas.tool_definition(
+        description="Return podlings with Incubator reporting compliance gaps, excluding activity analysis.",
+        handler=tool_reporting_gaps,
+        properties=schemas.reporting_gaps_properties(),
+    ),
+    "release_visibility": schemas.tool_definition(
+        description=(
+            "Return release-governance visibility concerns, including no releases and activity/release mismatches."
+        ),
+        handler=tool_release_visibility,
+        properties=schemas.release_visibility_properties(),
+    ),
+    "stalled_podlings": schemas.tool_definition(
+        description=("Return podlings that match the strict low-delivery, no-release stalled definition."),
+        handler=tool_stalled_podlings,
+        properties=schemas.stalled_podlings_properties(),
+    ),
     "ipmc_watchlist": schemas.tool_definition(
         description="Return podlings that most need IPMC attention based on combined lifecycle and health signals.",
         handler=tool_ipmc_watchlist,

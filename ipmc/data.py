@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import asdict, dataclass
 from datetime import date
 from typing import Any
@@ -14,6 +15,13 @@ _CONFIGURED_HEALTH_SOURCE: str | None = None
 
 WINDOW_PREFERENCE = ("3m", "6m", "12m", "to-date")
 REPORTING_WINDOW_PREFERENCE = ("12m", "6m", "to-date", "3m")
+TREND_FIELD_LABELS = {
+    "Releases (from list votes/results)": "releases",
+    "Unique committers": "unique_committers",
+    "Commits": "commits",
+}
+TREND_SECTION_RE = re.compile(r"^## Trends \(short vs medium\)\s*(.*?)(?=^## |\Z)", re.MULTILINE | re.DOTALL)
+TREND_LINE_RE = re.compile(r"^-\s+\*\*(?P<label>[^*]+):\*\*.*\((?P<trend>[^)]*)\)\s*$", re.MULTILINE)
 
 
 def configure_defaults(
@@ -99,6 +107,54 @@ def _reporting_window(summary: dict[str, Any] | None) -> tuple[str | None, dict[
     return None, None
 
 
+def _trend_label(value: str) -> str | None:
+    stripped = value.strip()
+    if not stripped or stripped == "—":
+        return None
+    if stripped.startswith(("↗", "↑", "▲")):
+        return "up"
+    if stripped.startswith(("↘", "↓", "▼")):
+        return "down"
+    if stripped.startswith(("→", "↔", "▶", "◀")):
+        return "flat"
+    return "mixed"
+
+
+def _fallback_trends_from_report_text(text: str | None) -> dict[str, str]:
+    if not text:
+        return {}
+    match = TREND_SECTION_RE.search(text)
+    if not match:
+        return {}
+
+    trends: dict[str, str] = {}
+    for line in TREND_LINE_RE.finditer(match.group(1)):
+        field = TREND_FIELD_LABELS.get(line.group("label").strip())
+        trend = _trend_label(line.group("trend"))
+        if field and trend:
+            trends[field] = trend
+    return trends
+
+
+def _with_fallback_trends(summary: dict[str, Any], raw_text: str | None) -> dict[str, Any]:
+    fallback_trends = _fallback_trends_from_report_text(raw_text)
+    if not fallback_trends:
+        return summary
+
+    latest_metrics = summary.get("latest_metrics") or {}
+    short_metrics = latest_metrics.get("3m")
+    if not isinstance(short_metrics, dict):
+        return summary
+
+    existing_trends = short_metrics.get("trends")
+    if not isinstance(existing_trends, dict):
+        existing_trends = {}
+        short_metrics["trends"] = existing_trends
+    for field, trend in fallback_trends.items():
+        existing_trends.setdefault(field, trend)
+    return summary
+
+
 def load_podlings(podlings_source: str | None = None) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     source = podlings_source or podlings_data.DEFAULT_SOURCE
     podlings, meta = podlings_data.parse_podlings(source)
@@ -109,7 +165,13 @@ def load_health_summaries(health_source: str | None = None) -> tuple[dict[str, d
     reports_dir = health_source or _CONFIGURED_HEALTH_SOURCE or DEFAULT_HEALTH_SOURCE
     overview = health_parser.reports_overview(reports_dir)
     reports = health_parser.load_reports(reports_dir)
-    summaries = {report.podling.casefold(): health_parser.summarize_report(report) for report in reports}
+    summaries = {
+        report.podling.casefold(): _with_fallback_trends(
+            health_parser.summarize_report(report),
+            getattr(report, "raw_text", None),
+        )
+        for report in reports
+    }
     return summaries, overview
 
 

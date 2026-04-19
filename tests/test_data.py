@@ -52,6 +52,35 @@ class DataTests(unittest.TestCase):
         self.assertIn("alpha", summaries)
         self.assertEqual(health_meta["report_count"], 3)
 
+    def test_load_health_summaries_reads_current_trend_sections(self) -> None:
+        report = mock.Mock()
+        report.podling = "Trendful"
+        report.raw_text = """# Trendful
+## Trends (short vs medium)
+
+- **Releases (from list votes/results):** 1 (—)
+- **Unique committers:** 8 (↗↗)
+- **Commits:** 12 (↘)
+
+## Window Details
+### 3m
+"""
+        module = mock.Mock()
+        module.reports_overview.return_value = {"reports_dir": "/tmp/reports", "report_count": 1}
+        module.load_reports.return_value = [report]
+        module.summarize_report.return_value = {
+            "podling": "Trendful",
+            "latest_metrics": {"3m": {"commits": 12, "unique_committers": 8, "releases": 1, "trends": {}}},
+        }
+
+        with mock.patch.object(data, "health_parser", module):
+            summaries, _ = data.load_health_summaries("/tmp/reports")
+
+        self.assertEqual(
+            summaries["trendful"]["latest_metrics"]["3m"]["trends"],
+            {"unique_committers": "up", "commits": "down"},
+        )
+
     def test_config_overrides_default_reports_dir(self) -> None:
         module = mock.Mock()
         module.reports_overview.return_value = {"reports_dir": "/tmp/reports", "report_count": 0}

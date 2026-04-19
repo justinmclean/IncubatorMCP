@@ -84,6 +84,65 @@ def watchlist_properties() -> dict[str, Any]:
     }
 
 
+def recent_changes_properties() -> dict[str, Any]:
+    return {
+        **base_properties(),
+        "podling": PODLING_PROPERTY,
+        "limit": LIMIT_PROPERTY,
+    }
+
+
+def reporting_gaps_properties() -> dict[str, Any]:
+    return {
+        **base_properties(),
+        "podling": PODLING_PROPERTY,
+        "limit": LIMIT_PROPERTY,
+        "include_gaps": {
+            "type": "array",
+            "description": "Optional reporting gap filters",
+            "items": {
+                "type": "string",
+                "enum": [
+                    "missing_health_report",
+                    "missing_recent_reports",
+                    "newly_missing_reports",
+                    "inconsistent_reporting_pattern",
+                    "reporting_metric_missing",
+                ],
+            },
+        },
+    }
+
+
+def release_visibility_properties() -> dict[str, Any]:
+    return {
+        **base_properties(),
+        "podling": PODLING_PROPERTY,
+        "limit": LIMIT_PROPERTY,
+        "include_signals": {
+            "type": "array",
+            "description": "Optional release visibility signal filters",
+            "items": {
+                "type": "string",
+                "enum": [
+                    "no_releases_12m",
+                    "long_release_gap",
+                    "high_activity_no_releases",
+                    "contributors_no_releases",
+                    "release_visibility_unknown",
+                ],
+            },
+        },
+    }
+
+
+def stalled_podlings_properties() -> dict[str, Any]:
+    return {
+        **base_properties(),
+        "limit": LIMIT_PROPERTY,
+    }
+
+
 def podling_lookup_properties() -> dict[str, Any]:
     return {
         **base_properties(),
