@@ -1,6 +1,6 @@
 # IPMC MCP
 
-A small dependency-free MCP server for Apache Incubator PMC oversight views.
+A small MCP server for Apache Incubator PMC oversight views.
 
 It composes:
 
@@ -42,7 +42,7 @@ ipmc-mcp --health-source /path/to/incubator/tools/health/reports
 For local development without installing first, you can still run:
 
 ```bash
-python3 server.py --health-source /path/to/incubator/tools/health/reports
+PYTHONPATH=/path/to/HealthMCP/src:/path/to/PodlingsMCP python3 server.py --health-source /path/to/incubator/tools/health/reports
 ```
 
 The server uses `stdio`, so it is intended to be launched by an MCP client.
@@ -68,7 +68,7 @@ The default runtime imports its source MCP libraries from installed packages:
 - `apache-podlings-mcp`
 - `apache-health-mcp`
 
-No local sibling repository checkouts are required. Tool calls can still override the source data paths with `podlings_source` and `health_source`.
+When installed with `pip`, these dependencies are pulled from their Git repositories. If you run `server.py` directly from a checkout instead, make the source packages importable with `PYTHONPATH` or install them first. Tool calls can still override the source data paths with `podlings_source` and `health_source`.
 
 Configure the default health reports directory with `--health-source`. If unset, it defaults to `reports`.
 
