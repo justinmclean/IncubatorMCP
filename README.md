@@ -104,16 +104,18 @@ See [docs/architecture.md](docs/architecture.md) for the module layout, runtime 
 
 These examples show prompts an IPMC member or mentor could type into an MCP client.
 
-### Weekly IPMC Review Workflow
+### Monthly IPMC Review Workflow
 
-Use this when preparing for a regular Incubator oversight pass:
+Use this when preparing for a monthly Incubator oversight pass:
 
 - "What changed across current podlings since the last IPMC review?"
-- "Which podlings need IPMC attention this week, and why?"
+- "Which podlings need IPMC attention this month, and why?"
+- "Which podlings have crossed a year without a visible release, or show a meaningful activity shift?"
 - "Group this reporting cohort into reporting issues, release visibility issues, recent changes, and no obvious concerns."
 - "Show me current podlings with reporting gaps, but keep that separate from community health concerns."
 - "Which podlings have repeated reporting reliability issues rather than a one-off late report?"
 - "Which podlings have release visibility concerns that the IPMC should look at?"
+- "Which podlings look genuinely stalled, based on low activity, low discussion, and no recent releases?"
 - "Give me a detailed brief for the podlings that look most concerning."
 
 This gives reviewers a short queue of what changed, what needs attention, and what evidence supports each opinion.
@@ -128,20 +130,6 @@ Use this when a mentor wants a fast status check before following up with podlin
 - "Show me podlings with missing mentor sign-offs or weak mentor coverage."
 
 This keeps source facts, derived concerns, and confidence visible so mentors can decide what needs action versus clarification.
-
-### Focused Oversight Questions
-
-Use these when you want a narrower answer for one part of an Incubator oversight review:
-
-- "What are the most important recent changes across current podlings?"
-- "Which podlings have crossed a year without a visible release, or show a meaningful activity shift?"
-- "Which current podlings are missing recent Incubator reports?"
-- "Which podlings have a repeated reporting problem rather than a one-off late report?"
-- "Does FooPodling have any release visibility concerns?"
-- "Group this month's reporting podlings into reporting issues, release concerns, recent changes, and no obvious concerns."
-- "Which podlings look genuinely stalled, based on low activity, low discussion, and no recent releases?"
-
-These examples are intentionally narrow so the output stays factual and separated by concern type.
 
 ### Generating a Board Summary
 
