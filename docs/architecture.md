@@ -8,6 +8,7 @@ It does not replace the source MCPs. Instead, it composes:
 
 - `apache-podlings-mcp` for podling lifecycle and status data
 - `apache-health-mcp` for parsed health-report metrics
+- `apache-incubator-reports-mcp` for cached Incubator report entries
 
 The resulting tools provide IPMC-oriented synthesis: recent-change scans, reporting-gap checks, reporting-reliability patterns, release-visibility checks, stalled-podling detection, watchlists, graduation readiness, podling briefs, mentoring attention, and community-health summaries.
 
@@ -29,11 +30,13 @@ This module is responsible for source loading and composition.
 
 It:
 
-- imports `PodlingsMCP` and `HealthMCP` modules
+- imports `PodlingsMCP`, `HealthMCP`, and ReportMCP modules
 - resolves podlings data from the tool `podlings_source`, `--podlings-source`, `IPMC_PODLINGS_SOURCE`, or the ASF `podlings.xml` URL
 - resolves the health reports directory from the tool `health_source`, `--health-source`, `IPMC_HEALTH_SOURCE`, or `reports`
+- resolves cached Incubator reports from the tool `report_source`, `--report-source`, `IPMC_REPORT_SOURCE`, or `.cache/incubator-reports`
 - loads podling lifecycle records
 - loads health report summaries
+- loads ReportMCP podling report entries when cached reports are available
 - joins source data into `OversightRecord` objects
 - selects the preferred health window in this order: `3m`, `6m`, `12m`, `to-date`
 
@@ -41,11 +44,13 @@ The default sources can be configured with startup arguments:
 
 - `--podlings-source`
 - `--health-source`
+- `--report-source`
 
 They can also be configured with environment variables:
 
 - `IPMC_PODLINGS_SOURCE`
 - `IPMC_HEALTH_SOURCE`
+- `IPMC_REPORT_SOURCE`
 
 ### `ipmc/analysis.py`
 

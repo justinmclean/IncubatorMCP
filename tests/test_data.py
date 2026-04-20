@@ -139,6 +139,56 @@ class DataTests(unittest.TestCase):
         module.reports_overview.assert_called_once_with("/tmp/explicit")
         self.assertEqual(overview["source"], "/tmp/explicit")
 
+    def test_load_incubator_reports_uses_report_mcp_parser(self) -> None:
+        signoff = mock.Mock()
+        signoff.mentor = "Mentor One"
+        signoff.checked = True
+        item = mock.Mock()
+        item.podling = "Alpha"
+        item.to_dict.return_value = {
+            "podling": "Alpha",
+            "issues": ["Grow community."],
+            "observed_mentor_signoff_count": 1,
+        }
+        report = mock.Mock()
+        report.report_id = "report202604"
+        report.report_period = "2026-04"
+        report.title = "Incubator Report April 2026"
+        report.path = "/tmp/reports/report202604.txt"
+        report.source_url = None
+        report.cached_at = None
+        report.podling_reports = [item]
+        module = mock.Mock()
+        module.load_reports.return_value = [report]
+        module.reports_overview.return_value = {
+            "reports_dir": "/tmp/reports",
+            "report_count": 1,
+            "podling_count": 1,
+        }
+
+        with mock.patch.object(data.Path, "exists", return_value=True):
+            with mock.patch.object(data, "incubator_report_parser", module):
+                reports, meta = data.load_incubator_reports("/tmp/reports")
+
+        self.assertEqual(meta["source"], "/tmp/reports")
+        self.assertTrue(meta["available"])
+        self.assertEqual(reports["alpha"][0]["report_id"], "report202604")
+        self.assertEqual(reports["alpha"][0]["issues"], ["Grow community."])
+        item.to_dict.assert_called_once_with(include_body=False)
+
+    def test_environment_overrides_report_source_default(self) -> None:
+        module = mock.Mock()
+        module.load_reports.return_value = []
+        module.reports_overview.return_value = {"reports_dir": "/tmp/report-cache", "report_count": 0}
+
+        with mock.patch.dict(data.os.environ, {data.REPORT_SOURCE_ENV: "/tmp/report-cache"}):
+            with mock.patch.object(data.Path, "exists", return_value=True):
+                with mock.patch.object(data, "incubator_report_parser", module):
+                    _, meta = data.load_incubator_reports()
+
+        module.load_reports.assert_called_once_with("/tmp/report-cache")
+        self.assertEqual(meta["source"], "/tmp/report-cache")
+
     def test_default_health_source_matches_health_mcp_default(self) -> None:
         self.assertEqual(data.DEFAULT_HEALTH_SOURCE, "reports")
 
@@ -159,3 +209,4 @@ class DataTests(unittest.TestCase):
         self.assertEqual(len(current_only["records"]), 4)
         self.assertEqual(len(all_records["records"]), 4)
         self.assertEqual(current_only["records"][0].name, "Alpha")
+        self.assertIn("report_source", current_only)

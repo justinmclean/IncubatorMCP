@@ -4,18 +4,27 @@ from __future__ import annotations
 
 import os
 import re
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import date
+from pathlib import Path
 from typing import Any
 
 from apache_health_mcp import parser as health_parser
 from podlings import data as podlings_data
 
+try:
+    from apache_incubator_reports_mcp import parser as incubator_report_parser  # type: ignore[import-not-found]
+except ImportError:  # pragma: no cover - exercised when optional source package is absent locally
+    incubator_report_parser = None  # type: ignore[assignment]
+
 DEFAULT_HEALTH_SOURCE = "reports"
+DEFAULT_REPORT_SOURCE = ".cache/incubator-reports"
 PODLINGS_SOURCE_ENV = "IPMC_PODLINGS_SOURCE"
 HEALTH_SOURCE_ENV = "IPMC_HEALTH_SOURCE"
+REPORT_SOURCE_ENV = "IPMC_REPORT_SOURCE"
 _CONFIGURED_PODLINGS_SOURCE: str | None = None
 _CONFIGURED_HEALTH_SOURCE: str | None = None
+_CONFIGURED_REPORT_SOURCE: str | None = None
 
 PREFERRED_WINDOW_ORDER = ("3m", "6m", "12m", "to-date")
 REPORTING_WINDOW_ORDER = ("12m", "6m", "to-date", "3m")
@@ -34,15 +43,20 @@ def configure_defaults(
     podlings_repo: str | None = None,
     health_repo: str | None = None,
     health_source: str | None = None,
+    report_source: str | None = None,
+    reports_source: str | None = None,
 ) -> None:
-    global _CONFIGURED_HEALTH_SOURCE, _CONFIGURED_PODLINGS_SOURCE
+    global _CONFIGURED_HEALTH_SOURCE, _CONFIGURED_PODLINGS_SOURCE, _CONFIGURED_REPORT_SOURCE
 
     resolved_podlings_source = podlings_source or podlings_repo
     resolved_health_source = health_source or health_repo
+    resolved_report_source = report_source or reports_source
     if resolved_podlings_source:
         _CONFIGURED_PODLINGS_SOURCE = resolved_podlings_source
     if resolved_health_source:
         _CONFIGURED_HEALTH_SOURCE = resolved_health_source
+    if resolved_report_source:
+        _CONFIGURED_REPORT_SOURCE = resolved_report_source
 
 
 def _env_default(name: str) -> str | None:
@@ -82,6 +96,7 @@ class OversightRecord:
     reporting_window: str | None
     reporting_metrics: dict[str, Any] | None
     as_of_date: str | None
+    incubator_reports: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def name(self) -> str:
@@ -124,6 +139,14 @@ def _reporting_window(summary: dict[str, Any] | None) -> tuple[str | None, dict[
 
 
 def _normalize_health_source_meta(overview: dict[str, Any], requested_source: str) -> dict[str, Any]:
+    meta = dict(overview)
+    source = meta.get("source") or meta.get("reports_dir") or requested_source
+    meta["source"] = source
+    meta.setdefault("reports_dir", source)
+    return meta
+
+
+def _normalize_report_source_meta(overview: dict[str, Any], requested_source: str) -> dict[str, Any]:
     meta = dict(overview)
     source = meta.get("source") or meta.get("reports_dir") or requested_source
     meta["source"] = source
@@ -174,8 +197,8 @@ def _with_fallback_trends(summary: dict[str, Any], raw_text: str | None) -> dict
     if not isinstance(existing_trends, dict):
         existing_trends = {}
         short_metrics["trends"] = existing_trends
-    for field, trend in fallback_trends.items():
-        existing_trends.setdefault(field, trend)
+    for metric_field, trend in fallback_trends.items():
+        existing_trends.setdefault(metric_field, trend)
     return summary
 
 
@@ -204,15 +227,77 @@ def load_health_summaries(health_source: str | None = None) -> tuple[dict[str, d
     return summaries, _normalize_health_source_meta(overview, reports_dir)
 
 
+def _resolved_report_source(report_source: str | None = None) -> tuple[str, bool]:
+    explicit = report_source or _CONFIGURED_REPORT_SOURCE or _env_default(REPORT_SOURCE_ENV)
+    return explicit or DEFAULT_REPORT_SOURCE, explicit is not None
+
+
+def load_incubator_reports(report_source: str | None = None) -> tuple[dict[str, list[dict[str, Any]]], dict[str, Any]]:
+    reports_dir, explicit = _resolved_report_source(report_source)
+    if incubator_report_parser is None:
+        return (
+            {},
+            {
+                "source": reports_dir,
+                "reports_dir": reports_dir,
+                "report_count": 0,
+                "podling_count": 0,
+                "available": False,
+                "reason": "apache-incubator-reports-mcp is not installed.",
+            },
+        )
+
+    if not Path(reports_dir).expanduser().exists():
+        if explicit:
+            raise FileNotFoundError(f"ReportMCP source path does not exist: {reports_dir}")
+        return (
+            {},
+            {
+                "source": reports_dir,
+                "reports_dir": reports_dir,
+                "report_count": 0,
+                "podling_count": 0,
+                "available": False,
+                "reason": "Default ReportMCP cache directory does not exist.",
+            },
+        )
+
+    reports = incubator_report_parser.load_reports(reports_dir)
+    overview = incubator_report_parser.reports_overview(reports_dir)
+    by_podling: dict[str, list[dict[str, Any]]] = {}
+    for report in reports:
+        for item in report.podling_reports:
+            entry = item.to_dict(include_body=False)
+            entry.update(
+                {
+                    "report_id": report.report_id,
+                    "report_period": report.report_period,
+                    "title": report.title,
+                    "path": report.path,
+                    "source_url": report.source_url,
+                    "cached_at": report.cached_at,
+                }
+            )
+            by_podling.setdefault(item.podling.casefold(), []).append(entry)
+
+    for entries in by_podling.values():
+        entries.sort(key=lambda row: row.get("report_period") or "")
+    meta = _normalize_report_source_meta(overview, reports_dir)
+    meta["available"] = True
+    return by_podling, meta
+
+
 def build_records(
     *,
     podlings_source: str | None = None,
     health_source: str | None = None,
+    report_source: str | None = None,
     as_of_date: str | None = None,
     include_non_current: bool = False,
 ) -> dict[str, Any]:
     podlings, podlings_meta = load_podlings(podlings_source)
     summaries, health_meta = load_health_summaries(health_source)
+    report_entries, report_meta = load_incubator_reports(report_source)
 
     records: list[OversightRecord] = []
     for podling in podlings:
@@ -226,6 +311,7 @@ def build_records(
             OversightRecord(
                 podling=podling,
                 report_summary=summary,
+                incubator_reports=report_entries.get(str(podling.get("name", "")).casefold(), []),
                 preferred_window=preferred_window,
                 preferred_metrics=preferred_metrics,
                 reporting_window=reporting_window,
@@ -238,4 +324,5 @@ def build_records(
         "records": sorted(records, key=lambda item: item.name.casefold()),
         "podlings_source": podlings_meta,
         "health_source": health_meta,
+        "report_source": report_meta,
     }

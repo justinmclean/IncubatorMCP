@@ -76,10 +76,20 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(json.loads(response["content"][0]["text"]), {"ok": True})
 
     def test_parse_args_accepts_startup_sources(self) -> None:
-        args = protocol.parse_args(["--podlings-source", "/tmp/podlings.xml", "--health-source", "/tmp/reports"])
+        args = protocol.parse_args(
+            [
+                "--podlings-source",
+                "/tmp/podlings.xml",
+                "--health-source",
+                "/tmp/reports",
+                "--report-source",
+                "/tmp/report-cache",
+            ]
+        )
 
         self.assertEqual(args.podlings_source, "/tmp/podlings.xml")
         self.assertEqual(args.health_source, "/tmp/reports")
+        self.assertEqual(args.report_source, "/tmp/report-cache")
 
     def test_call_tool_success(self) -> None:
         with make_fixture_sources() as (podlings_source, health_source):
@@ -244,10 +254,20 @@ class ProtocolTests(unittest.TestCase):
 
         with mock.patch.object(protocol.sys, "stdin", stdin):
             with mock.patch.object(protocol, "configure_defaults") as configure_defaults:
-                exit_code = protocol.main(["--podlings-source", "/tmp/podlings.xml", "--health-source", "/tmp/reports"])
+                exit_code = protocol.main(
+                    [
+                        "--podlings-source",
+                        "/tmp/podlings.xml",
+                        "--health-source",
+                        "/tmp/reports",
+                        "--report-source",
+                        "/tmp/report-cache",
+                    ]
+                )
 
         self.assertEqual(exit_code, 0)
         configure_defaults.assert_called_once_with(
             podlings_source="/tmp/podlings.xml",
             health_source="/tmp/reports",
+            report_source="/tmp/report-cache",
         )

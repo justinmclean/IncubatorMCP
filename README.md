@@ -6,6 +6,7 @@ It composes:
 
 - podling lifecycle data from `apache-podlings-mcp`
 - community and report signals from `apache-health-mcp`
+- cached Incubator report entries from `apache-incubator-reports-mcp`
 
 It exposes opinionated Incubator-level tools to help the IPMC:
 
@@ -40,13 +41,18 @@ python3 -m pip install -e .[dev]
 After installation, run the stdio MCP server with:
 
 ```bash
-ipmc-mcp --health-source /path/to/incubator/tools/health/reports
+ipmc-mcp \
+  --health-source /path/to/incubator/tools/health/reports \
+  --report-source /path/to/ReportMCP/.cache/incubator-reports
 ```
 
 For local development without installing first, you can still run:
 
 ```bash
-PYTHONPATH=/path/to/HealthMCP/src:/path/to/PodlingsMCP python3 server.py --health-source /path/to/incubator/tools/health/reports
+PYTHONPATH=/path/to/HealthMCP/src:/path/to/PodlingsMCP/src:/path/to/ReportMCP/src \
+  python3 server.py \
+  --health-source /path/to/incubator/tools/health/reports \
+  --report-source /path/to/ReportMCP/.cache/incubator-reports
 ```
 
 The server uses `stdio`, so it is intended to be launched by an MCP client.
@@ -60,7 +66,9 @@ The server uses `stdio`, so it is intended to be launched by an MCP client.
       "command": "ipmc-mcp",
       "args": [
         "--health-source",
-        "/path/to/incubator/tools/health/reports"
+        "/path/to/incubator/tools/health/reports",
+        "--report-source",
+        "/path/to/ReportMCP/.cache/incubator-reports"
       ]
     }
   }
@@ -71,15 +79,17 @@ The default runtime imports its source MCP libraries from installed packages:
 
 - `apache-podlings-mcp`
 - `apache-health-mcp`
+- `apache-incubator-reports-mcp`
 
-When installed with `pip`, these dependencies are pulled from their Git repositories. If you run `server.py` directly from a checkout instead, make the source packages importable with `PYTHONPATH` or install them first. Tool calls can still override the source data paths with `podlings_source` and `health_source`.
+When installed with `pip`, these dependencies are pulled from their Git repositories. If you run `server.py` directly from a checkout instead, make the source packages importable with `PYTHONPATH` or install them first. Tool calls can still override the source data paths with `podlings_source`, `health_source`, and `report_source`.
 
 Configure startup defaults with command-line arguments or environment variables:
 
 - `--podlings-source` or `IPMC_PODLINGS_SOURCE`: optional URL or local path for `podlings.xml`
 - `--health-source` or `IPMC_HEALTH_SOURCE`: local path for apache-health report Markdown files
+- `--report-source` or `IPMC_REPORT_SOURCE`: local path for ReportMCP cached ASF Incubator report files
 
-Per-tool `podlings_source` and `health_source` arguments take precedence over startup defaults. If `podlings_source` is unset, it defaults to the ASF `podlings.xml` URL. If `health_source` is unset, it defaults to `reports`.
+Per-tool `podlings_source`, `health_source`, and `report_source` arguments take precedence over startup defaults. If `podlings_source` is unset, it defaults to the ASF `podlings.xml` URL. If `health_source` is unset, it defaults to `reports`. If `report_source` is unset, it defaults to `.cache/incubator-reports`; a missing default ReportMCP cache is reported as unavailable rather than treated as an error.
 
 ## Test
 
@@ -114,6 +124,10 @@ Use this when preparing for a monthly Incubator oversight pass:
 - "Group this reporting cohort into reporting issues, release visibility issues, recent changes, and no obvious concerns."
 - "Show me current podlings with reporting gaps, but keep that separate from community health concerns."
 - "Which podlings have repeated reporting reliability issues rather than a one-off late report?"
+- "Which current podlings call out unresolved issues in their recent Incubator reports?"
+- "Compare reported podling issues with health signals and tell me which podlings need follow-up."
+- "Which current podlings do not appear to have a recent Incubator report?"
+- "Highlight podlings where the report narrative and recent health metrics point to different risks."
 - "Which podlings have release visibility concerns that the IPMC should look at?"
 - "Which podlings look genuinely stalled, based on low activity, low discussion, and no recent releases?"
 - "Give me a detailed brief for the podlings that look most concerning."
@@ -126,6 +140,10 @@ Use this when a mentor wants a fast status check before following up with podlin
 
 - "Give me a focused brief for FooPodling covering reporting, releases, mentoring, and community health."
 - "Does FooPodling look ready for graduation, and what evidence is missing?"
+- "Show the recent Incubator report evidence for FooPodling, including issues, last release, and observed mentor sign-offs."
+- "For FooPodling, separate source facts from IPMC interpretation and tell me what I should verify with the community."
+- "What has FooPodling reported as unfinished issues, and do the health metrics support those concerns?"
+- "Show me FooPodling's mentor sign-off evidence without treating partial sign-off as a failure."
 - "Which podlings appear to need mentor intervention?"
 - "Show me podlings with missing mentor sign-offs or weak mentor coverage."
 
@@ -137,6 +155,10 @@ This server is not a board tool, but it can help assemble Incubator context for 
 
 - "Summarize the main community-health themes across current podlings, with examples."
 - "Which high-risk podlings may need narrative attention in the Incubator report?"
+- "Use recent Incubator reports to identify repeated podling themes that may need IPMC follow-up."
+- "Find podlings whose report narratives mention graduation blockers and summarize the supporting health evidence."
+- "Which podlings have recurring issues across their Incubator report history?"
+- "Give me an evidence-backed list of podlings where the report narrative and release visibility both need attention."
 - "List reporting compliance issues separately from release-governance concerns."
 - "Give me short evidence-backed briefs for the podlings most likely to be mentioned by name."
 
@@ -152,6 +174,7 @@ Arguments:
 
 - `podlings_source`: optional URL or local file path for `podlings.xml`
 - `health_source`: optional local reports directory for apache-health markdown reports
+- `report_source`: optional local directory of ReportMCP cached Incubator reports
 - `as_of_date`: optional `YYYY-MM-DD` date for duration-sensitive views
 - `podling`: optional podling name filter
 - `limit`: optional max number of results
@@ -166,6 +189,7 @@ Arguments:
 
 - `podlings_source`
 - `health_source`
+- `report_source`
 - `as_of_date`
 - `podling`: optional podling name filter
 - `limit`: optional max number of results
@@ -179,6 +203,7 @@ Arguments:
 
 - `podlings_source`
 - `health_source`
+- `report_source`
 - `as_of_date`
 - `podling`: optional podling name filter
 - `limit`: optional max number of results
@@ -192,6 +217,7 @@ Arguments:
 
 - `podlings_source`
 - `health_source`
+- `report_source`
 - `as_of_date`
 - `podling`: optional podling name filter
 - `limit`: optional max number of results per category
@@ -205,6 +231,7 @@ Arguments:
 
 - `podlings_source`
 - `health_source`
+- `report_source`
 - `as_of_date`
 - `podling`: optional podling name filter
 - `limit`: optional max number of results
@@ -218,6 +245,7 @@ Arguments:
 
 - `podlings_source`
 - `health_source`
+- `report_source`
 - `as_of_date`
 - `podling`: optional podling name filter
 
@@ -229,6 +257,7 @@ Arguments:
 
 - `podlings_source`
 - `health_source`
+- `report_source`
 - `as_of_date`
 - `limit`: optional max number of results
 
@@ -240,6 +269,7 @@ Arguments:
 
 - `podlings_source`: optional URL or local file path for `podlings.xml`
 - `health_source`: optional local reports directory for apache-health markdown reports
+- `report_source`: optional local directory of ReportMCP cached Incubator reports
 - `as_of_date`: optional `YYYY-MM-DD` date for duration-sensitive views
 - `limit`: optional max number of results
 - `severity_at_least`: optional minimum severity filter
@@ -254,6 +284,7 @@ Arguments:
 - `podling`: required podling name
 - `podlings_source`
 - `health_source`
+- `report_source`
 - `as_of_date`
 - `include_evidence`: optional boolean, defaults to true
 - `strict_mode`: optional boolean
@@ -267,6 +298,7 @@ Arguments:
 - `podling`: required podling name
 - `podlings_source`
 - `health_source`
+- `report_source`
 - `as_of_date`
 - `focus`: optional area list
 - `brief_format`: optional `summary` or `detailed`
@@ -279,6 +311,7 @@ Arguments:
 
 - `podlings_source`
 - `health_source`
+- `report_source`
 - `as_of_date`
 - `limit`: optional max number of results
 - `urgency_at_least`: optional minimum urgency filter
@@ -292,6 +325,7 @@ Arguments:
 
 - `podlings_source`
 - `health_source`
+- `report_source`
 - `as_of_date`
 - `scope`: optional `all_podlings`, `active_podlings`, or `reporting_podlings`
 - `group_by`: optional `none`, `risk_band`, `mentor_load`, or `age_band`
@@ -301,10 +335,11 @@ Arguments:
 
 - When omitted, `podlings_source` uses `--podlings-source`, `IPMC_PODLINGS_SOURCE`, or the ASF `podlings.xml` URL.
 - When omitted, `health_source` uses `--health-source`, `IPMC_HEALTH_SOURCE`, or `reports` if no startup default is set.
+- When omitted, `report_source` uses `--report-source`, `IPMC_REPORT_SOURCE`, or `.cache/incubator-reports` if no startup default is set.
 - Oversight views focus on current podlings by default.
 - Health analysis prefers the freshest available window in this order: `3m`, `6m`, `12m`, `to-date`.
-- Source metadata consistently exposes a `source` field. Health metadata also preserves the upstream `reports_dir`
-  field for compatibility with apache-health.
+- Source metadata consistently exposes a `source` field. Health and ReportMCP metadata also preserve the upstream
+  `reports_dir` field for compatibility with their source MCPs.
 
 ## Opinion Model
 
@@ -322,7 +357,7 @@ The resulting outputs are intended to support IPMC judgment, not replace it.
 
 Opinionated outputs include an `explainability` object so IPMC members can challenge the result:
 
-- `source_data_used`: the podlings and apache-health fields that informed the opinion
+- `source_data_used`: the podlings, apache-health, and ReportMCP fields that informed the opinion
 - `reasoning`: human-readable explanation of why the opinion was reached
 - `confidence`: high, medium, or low confidence in the opinion based on source coverage
 - `missing`: source evidence that is absent or would improve the assessment
