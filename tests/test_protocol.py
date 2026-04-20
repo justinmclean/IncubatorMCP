@@ -24,6 +24,7 @@ class ProtocolTests(unittest.TestCase):
             [
                 "recent_changes",
                 "reporting_gaps",
+                "reporting_reliability",
                 "release_visibility",
                 "reporting_cohort",
                 "stalled_podlings",

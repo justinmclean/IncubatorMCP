@@ -8,6 +8,7 @@ from ipmc.analysis import (
     confidence_for_record,
     evaluate_record,
     readiness_assessment,
+    reporting_reliability_pattern,
     severity_at_least,
     severity_value,
     trend_from_metrics,
@@ -411,3 +412,84 @@ class AnalysisTests(unittest.TestCase):
             ),
             "steady_progress",
         )
+
+    def test_reporting_reliability_pattern_categories(self) -> None:
+        consistently_on_time = OversightRecord(
+            podling={"name": "Steady", "status": "current", "mentors": ["A"], "startdate": "2024-01-01"},
+            report_summary={
+                "latest_metrics": {
+                    "3m": {"reports_count": 1},
+                    "6m": {"reports_count": 2},
+                    "12m": {"reports_count": 4},
+                }
+            },
+            preferred_window="3m",
+            preferred_metrics={"reports_count": 1},
+            reporting_window="12m",
+            reporting_metrics={"reports_count": 4, "trends": {"reports_count": "flat"}},
+            as_of_date="2026-04-18",
+        )
+        occasional_late = OversightRecord(
+            podling={"name": "Occasional", "status": "current", "mentors": ["A"], "startdate": "2024-01-01"},
+            report_summary={
+                "latest_metrics": {
+                    "3m": {"reports_count": 0},
+                    "6m": {"reports_count": 1},
+                    "12m": {"reports_count": 3},
+                }
+            },
+            preferred_window="3m",
+            preferred_metrics={"reports_count": 0},
+            reporting_window="12m",
+            reporting_metrics={"reports_count": 3},
+            as_of_date="2026-04-18",
+        )
+        repeated_late = OversightRecord(
+            podling={"name": "RepeatedLate", "status": "current", "mentors": ["A"], "startdate": "2024-01-01"},
+            report_summary={
+                "latest_metrics": {
+                    "3m": {"reports_count": 0},
+                    "6m": {"reports_count": 0},
+                    "12m": {"reports_count": 1},
+                }
+            },
+            preferred_window="3m",
+            preferred_metrics={"reports_count": 0},
+            reporting_window="12m",
+            reporting_metrics={"reports_count": 1, "trends": {"reports_count": "down"}},
+            as_of_date="2026-04-18",
+        )
+        repeated_missing = OversightRecord(
+            podling={"name": "Missing", "status": "current", "mentors": ["A"], "startdate": "2024-01-01"},
+            report_summary={"latest_metrics": {"3m": {"reports_count": 0}, "12m": {"reports_count": 0}}},
+            preferred_window="3m",
+            preferred_metrics={"reports_count": 0},
+            reporting_window="12m",
+            reporting_metrics={"reports_count": 0},
+            as_of_date="2026-04-18",
+        )
+        young_no_reports = OversightRecord(
+            podling={"name": "New", "status": "current", "mentors": ["A"], "startdate": "2026-02-01"},
+            report_summary={"latest_metrics": {"3m": {"reports_count": 0}, "12m": {"reports_count": 0}}},
+            preferred_window="3m",
+            preferred_metrics={"reports_count": 0},
+            reporting_window="12m",
+            reporting_metrics={"reports_count": 0},
+            as_of_date="2026-04-18",
+        )
+        no_health_report = OversightRecord(
+            podling={"name": "NoHealth", "status": "current", "mentors": ["A"], "startdate": "2016-01-01"},
+            report_summary=None,
+            preferred_window=None,
+            preferred_metrics=None,
+            reporting_window=None,
+            reporting_metrics=None,
+            as_of_date="2026-04-18",
+        )
+
+        self.assertEqual(reporting_reliability_pattern(consistently_on_time)["category"], "consistently_on_time")
+        self.assertEqual(reporting_reliability_pattern(occasional_late)["category"], "occasional_late")
+        self.assertEqual(reporting_reliability_pattern(repeated_late)["category"], "repeated_late")
+        self.assertEqual(reporting_reliability_pattern(repeated_missing)["category"], "repeated_missing")
+        self.assertEqual(reporting_reliability_pattern(young_no_reports)["category"], "reporting_data_unavailable")
+        self.assertEqual(reporting_reliability_pattern(no_health_report)["category"], "reporting_data_unavailable")

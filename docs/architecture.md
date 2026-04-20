@@ -9,7 +9,7 @@ It does not replace the source MCPs. Instead, it composes:
 - `apache-podlings-mcp` for podling lifecycle and status data
 - `apache-health-mcp` for parsed health-report metrics
 
-The resulting tools provide IPMC-oriented synthesis: recent-change scans, reporting-gap checks, release-visibility checks, stalled-podling detection, watchlists, graduation readiness, podling briefs, mentoring attention, and community-health summaries.
+The resulting tools provide IPMC-oriented synthesis: recent-change scans, reporting-gap checks, reporting-reliability patterns, release-visibility checks, stalled-podling detection, watchlists, graduation readiness, podling briefs, mentoring attention, and community-health summaries.
 
 ## Runtime Flow
 
@@ -54,7 +54,7 @@ This module owns derived IPMC opinions.
 It:
 
 - evaluates podling risk signals
-- identifies narrow recent-change, reporting-gap, release-visibility, and stalled-podling signals
+- identifies narrow recent-change, reporting-gap, reporting-reliability, release-visibility, and stalled-podling signals
 - derives severity and trend
 - estimates confidence
 - assesses graduation readiness
@@ -79,6 +79,7 @@ The public tools are:
 
 - `recent_changes`
 - `reporting_gaps`
+- `reporting_reliability`
 - `release_visibility`
 - `reporting_cohort`
 - `stalled_podlings`

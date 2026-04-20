@@ -114,6 +114,28 @@ def reporting_gaps_properties() -> dict[str, Any]:
     }
 
 
+def reporting_reliability_properties() -> dict[str, Any]:
+    return {
+        **base_properties(),
+        "podling": PODLING_PROPERTY,
+        "limit": LIMIT_PROPERTY,
+        "include_categories": {
+            "type": "array",
+            "description": "Optional reporting reliability category filters",
+            "items": {
+                "type": "string",
+                "enum": [
+                    "consistently_on_time",
+                    "occasional_late",
+                    "repeated_late",
+                    "repeated_missing",
+                    "reporting_data_unavailable",
+                ],
+            },
+        },
+    }
+
+
 def release_visibility_properties() -> dict[str, Any]:
     return {
         **base_properties(),

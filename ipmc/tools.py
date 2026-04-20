@@ -12,6 +12,7 @@ from .analysis import (
     recent_change_events,
     release_visibility_signals,
     reporting_gap_signals,
+    reporting_reliability_pattern,
     severity_at_least,
     stalled_podling_signal,
 )
@@ -48,6 +49,13 @@ REPORTING_GAPS = {
     "newly_missing_reports",
     "inconsistent_reporting_pattern",
     "reporting_metric_missing",
+}
+REPORTING_RELIABILITY_CATEGORIES = {
+    "consistently_on_time",
+    "occasional_late",
+    "repeated_late",
+    "repeated_missing",
+    "reporting_data_unavailable",
 }
 RELEASE_VISIBILITY_SIGNALS = {
     "no_releases_12m",
@@ -611,6 +619,78 @@ def tool_reporting_gaps(arguments: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def tool_reporting_reliability(arguments: dict[str, Any]) -> dict[str, Any]:
+    sources = _resolve_sources(arguments)
+    podling = optional_string(arguments, "podling")
+    limit = optional_integer(arguments, "limit") or 100
+    include_categories = optional_list_of_choices(
+        arguments,
+        "include_categories",
+        REPORTING_RELIABILITY_CATEGORIES,
+    )
+    category_order = [
+        "repeated_missing",
+        "repeated_late",
+        "occasional_late",
+        "consistently_on_time",
+        "reporting_data_unavailable",
+    ]
+
+    data = build_records(**sources)
+    records = _maybe_filter_podling(data["records"], podling)
+    buckets: dict[str, list[dict[str, Any]]] = {category: [] for category in category_order}
+
+    for record in records:
+        pattern = reporting_reliability_pattern(record)
+        category = pattern["category"]
+        if include_categories and category not in include_categories:
+            continue
+        buckets[category].append(
+            {
+                "podling": record.name,
+                "category": category,
+                "observed": pattern["observed"],
+                "evidence": pattern["evidence"],
+                "summary": pattern["reason"],
+                "explainability": _explainability(
+                    record,
+                    [
+                        "Only Incubator report-count metrics across available reporting windows are considered.",
+                        "Activity, release, mentor, and graduation signals are intentionally excluded.",
+                        (
+                            "Expected counts use monthly reporting for the first quarter and quarterly reporting "
+                            "after that; a single missed expected report is treated as a catch-up-next-month case."
+                        ),
+                        "Exact due-date timeliness is not visible from rolling report counts.",
+                    ],
+                ),
+            }
+        )
+
+    for category, items in buckets.items():
+        items.sort(key=lambda item: item["podling"].casefold())
+        buckets[category] = items[:limit]
+
+    return {
+        "podlings_source": data["podlings_source"],
+        "health_source": data["health_source"],
+        "generated_for": "reporting_reliability",
+        "as_of_date": sources["as_of_date"],
+        "category_order": category_order,
+        "counts": {category: len(items) for category, items in buckets.items()},
+        "buckets": buckets,
+        "explainability": _summary_explainability(
+            records,
+            [
+                "Reporting reliability is grouped by report-count patterns over available rolling windows.",
+                "The view separates one-off reporting slips from repeated missing reporting evidence.",
+                "Buckets are non-ranked and sorted alphabetically inside each category.",
+            ],
+            example_podlings=[record.name for record in records[:5]],
+        ),
+    }
+
+
 def tool_release_visibility(arguments: dict[str, Any]) -> dict[str, Any]:
     sources = _resolve_sources(arguments)
     podling = optional_string(arguments, "podling")
@@ -901,6 +981,14 @@ TOOLS: dict[str, dict[str, Any]] = {
         description="Return podlings with Incubator reporting compliance gaps, excluding activity analysis.",
         handler=tool_reporting_gaps,
         properties=schemas.reporting_gaps_properties(),
+    ),
+    "reporting_reliability": schemas.tool_definition(
+        description=(
+            "Return objective reporting reliability patterns over time, separating one-off late reporting "
+            "from repeated late or missing reporting."
+        ),
+        handler=tool_reporting_reliability,
+        properties=schemas.reporting_reliability_properties(),
     ),
     "release_visibility": schemas.tool_definition(
         description=(

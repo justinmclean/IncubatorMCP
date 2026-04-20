@@ -451,6 +451,99 @@ class ToolTests(unittest.TestCase):
 
         self.assertEqual(payload["items"], [])
 
+    def test_reporting_reliability_groups_over_time_patterns(self) -> None:
+        steady = OversightRecord(
+            podling={"name": "Steady", "status": "current", "mentors": ["A", "B"], "startdate": "2024-01-01"},
+            report_summary={
+                "latest_metrics": {
+                    "3m": {"reports_count": 1},
+                    "6m": {"reports_count": 2},
+                    "12m": {"reports_count": 4},
+                }
+            },
+            preferred_window="3m",
+            preferred_metrics={"reports_count": 1},
+            reporting_window="12m",
+            reporting_metrics={"reports_count": 4, "trends": {"reports_count": "flat"}},
+            as_of_date="2026-04-18",
+        )
+        occasional = OversightRecord(
+            podling={"name": "Occasional", "status": "current", "mentors": ["A", "B"], "startdate": "2024-01-01"},
+            report_summary={
+                "latest_metrics": {
+                    "3m": {"reports_count": 0},
+                    "6m": {"reports_count": 1},
+                    "12m": {"reports_count": 3},
+                }
+            },
+            preferred_window="3m",
+            preferred_metrics={"reports_count": 0},
+            reporting_window="12m",
+            reporting_metrics={"reports_count": 3},
+            as_of_date="2026-04-18",
+        )
+        repeated_late = OversightRecord(
+            podling={"name": "RepeatedLate", "status": "current", "mentors": ["A", "B"], "startdate": "2024-01-01"},
+            report_summary={
+                "latest_metrics": {
+                    "3m": {"reports_count": 0},
+                    "6m": {"reports_count": 0},
+                    "12m": {"reports_count": 1},
+                }
+            },
+            preferred_window="3m",
+            preferred_metrics={"reports_count": 0},
+            reporting_window="12m",
+            reporting_metrics={"reports_count": 1, "trends": {"reports_count": "down"}},
+            as_of_date="2026-04-18",
+        )
+        missing = OversightRecord(
+            podling={"name": "Missing", "status": "current", "mentors": ["A", "B"], "startdate": "2024-01-01"},
+            report_summary={"latest_metrics": {"3m": {"reports_count": 0}, "12m": {"reports_count": 0}}},
+            preferred_window="3m",
+            preferred_metrics={"reports_count": 0},
+            reporting_window="12m",
+            reporting_metrics={"reports_count": 0},
+            as_of_date="2026-04-18",
+        )
+        young = OversightRecord(
+            podling={"name": "Young", "status": "current", "mentors": ["A", "B"], "startdate": "2026-02-01"},
+            report_summary={"latest_metrics": {"3m": {"reports_count": 0}, "12m": {"reports_count": 0}}},
+            preferred_window="3m",
+            preferred_metrics={"reports_count": 0},
+            reporting_window="12m",
+            reporting_metrics={"reports_count": 0},
+            as_of_date="2026-04-18",
+        )
+        no_health = OversightRecord(
+            podling={"name": "NoHealth", "status": "current", "mentors": ["A", "B"], "startdate": "2016-01-01"},
+            report_summary=None,
+            preferred_window=None,
+            preferred_metrics=None,
+            reporting_window=None,
+            reporting_metrics=None,
+            as_of_date="2026-04-18",
+        )
+        data = {
+            "records": [steady, occasional, repeated_late, missing, young, no_health],
+            "podlings_source": {"source": "podlings.xml"},
+            "health_source": {"reports_dir": "reports"},
+        }
+        with mock.patch.object(tools, "build_records", return_value=data):
+            payload = tools.tool_reporting_reliability({})
+
+        self.assertEqual(payload["generated_for"], "reporting_reliability")
+        self.assertEqual(payload["buckets"]["consistently_on_time"][0]["podling"], "Steady")
+        self.assertEqual(payload["buckets"]["occasional_late"][0]["podling"], "Occasional")
+        self.assertEqual(payload["buckets"]["repeated_late"][0]["podling"], "RepeatedLate")
+        self.assertEqual(payload["buckets"]["repeated_missing"][0]["podling"], "Missing")
+        self.assertEqual(
+            [item["podling"] for item in payload["buckets"]["reporting_data_unavailable"]],
+            ["NoHealth", "Young"],
+        )
+        assert_explainability(self, payload["buckets"]["repeated_missing"][0]["explainability"])
+        assert_explainability(self, payload["explainability"])
+
     def test_release_visibility_uses_governance_lens(self) -> None:
         record = OversightRecord(
             podling={"name": "Shipping", "status": "current", "mentors": ["A", "B"], "startdate": "2024-01-01"},

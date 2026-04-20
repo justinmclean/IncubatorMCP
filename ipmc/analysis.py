@@ -432,6 +432,93 @@ def reporting_gap_signals(record: OversightRecord) -> list[dict[str, Any]]:
     return deduped
 
 
+def expected_reporting_count(months_in_incubation: int | None, window_months: int) -> int | None:
+    """Return expected Incubator reports in a rolling window from ASF podling cadence."""
+    if months_in_incubation is None:
+        return None
+    if months_in_incubation <= 0:
+        return 0
+
+    window_start = max(0, months_in_incubation - window_months)
+    due_months = [month for month in range(1, months_in_incubation + 1) if month <= 3 or (month > 3 and month % 3 == 0)]
+    return sum(1 for month in due_months if window_start < month <= months_in_incubation)
+
+
+def reporting_reliability_pattern(record: OversightRecord) -> dict[str, Any]:
+    """Classify reporting reliability using only report-count evidence across available windows."""
+    if record.report_summary is None:
+        age_note = (
+            f" The podling has been incubating for {record.months_in_incubation} month(s)."
+            if record.months_in_incubation is not None
+            else ""
+        )
+        return {
+            "category": "reporting_data_unavailable",
+            "observed": {},
+            "reason": f"No apache-health report is available to evaluate reporting reliability over time.{age_note}",
+            "evidence": ["No apache-health report was found for this podling."],
+        }
+
+    latest_metrics = record.report_summary.get("latest_metrics") or {}
+    observed = {
+        window: metrics.get("reports_count")
+        for window in ("3m", "6m", "12m")
+        if isinstance((metrics := latest_metrics.get(window)), dict) and metrics.get("reports_count") is not None
+    }
+    trend = _trend(record.reporting_metrics, "reports_count")
+    evidence = [f"{window}: {count} report(s)" for window, count in observed.items()]
+    if trend:
+        evidence.append(f"report count trend: {trend}")
+
+    if not observed:
+        return {
+            "category": "reporting_data_unavailable",
+            "observed": observed,
+            "reason": "No Incubator report-count metrics are available across reporting windows.",
+            "evidence": evidence or ["No report-count metrics were found."],
+        }
+
+    months = record.months_in_incubation
+    if months is not None and months < 3 and not any(count and count > 0 for count in observed.values()):
+        category = "reporting_data_unavailable"
+        reason = "The podling is too new for a reliable reporting pattern, and no reports are visible yet."
+    else:
+        window = "12m" if "12m" in observed else "6m" if "6m" in observed else None
+        expected = expected_reporting_count(months, 12 if window == "12m" else 6 if window == "6m" else 0)
+        if window is None or expected is None or expected == 0:
+            category = "reporting_data_unavailable"
+            reason = "No medium or annual reporting window is available for an age-aware pattern."
+        else:
+            actual = observed[window] or 0
+            missing = max(expected - actual, 0)
+            evidence.append(f"expected in {window}: {expected} report(s)")
+            if missing == 0:
+                category = "consistently_on_time"
+                reason = (
+                    f"The {window} reporting window is on track by report count for podling age; "
+                    "exact due-date timeliness is not visible in this source."
+                )
+            elif actual == 0 and expected >= 2:
+                category = "repeated_missing"
+                reason = f"The {window} reporting window shows no reports, with {expected} expected."
+            elif missing == 1:
+                category = "occasional_late"
+                reason = (
+                    f"The {window} reporting window is short by one expected report; "
+                    "this matches a normal catch-up-next-month situation rather than a systemic pattern."
+                )
+            else:
+                category = "repeated_late"
+                reason = f"The {window} reporting window is short by {missing} expected reports."
+
+    return {
+        "category": category,
+        "observed": observed,
+        "reason": reason,
+        "evidence": evidence,
+    }
+
+
 def release_visibility_signals(record: OversightRecord) -> list[dict[str, Any]]:
     """Return release-governance visibility concerns without general health scoring."""
     metrics_12m = _window_metrics(record, RELEASE_STALL_WINDOW)

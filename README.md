@@ -112,6 +112,7 @@ Use this when preparing for a regular Incubator oversight pass:
 - "Which podlings need IPMC attention this week, and why?"
 - "Group this reporting cohort into reporting issues, release visibility issues, recent changes, and no obvious concerns."
 - "Show me current podlings with reporting gaps, but keep that separate from community health concerns."
+- "Which podlings have repeated reporting reliability issues rather than a one-off late report?"
 - "Which podlings have release visibility concerns that the IPMC should look at?"
 - "Give me a detailed brief for the podlings that look most concerning."
 
@@ -165,6 +166,19 @@ Arguments:
 - `podling`: optional podling name filter
 - `limit`: optional max number of results
 - `include_gaps`: optional gap filter list
+
+### `reporting_reliability`
+
+Return objective reporting reliability patterns over time, grouped into consistently on time, occasional late, repeated late, repeated missing, and reporting data unavailable. Categories compare observed report counts with the expected Incubator cadence: monthly for the first quarter, then quarterly after that. A single missed expected report is treated as an occasional catch-up-next-month case, not a systemic issue. Exact due-date timeliness is not visible from rolling report counts.
+
+Arguments:
+
+- `podlings_source`
+- `health_source`
+- `as_of_date`
+- `podling`: optional podling name filter
+- `limit`: optional max number of results per category
+- `include_categories`: optional reporting reliability category filter list
 
 ### `release_visibility`
 
