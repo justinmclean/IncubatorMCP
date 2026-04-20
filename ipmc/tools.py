@@ -14,6 +14,7 @@ from .analysis import (
     reporting_gap_signals,
     reporting_reliability_pattern,
     severity_at_least,
+    significant_change_events,
     stalled_podling_signal,
 )
 from .data import build_records
@@ -63,6 +64,13 @@ RELEASE_VISIBILITY_SIGNALS = {
     "high_activity_no_releases",
     "contributors_no_releases",
     "release_visibility_unknown",
+}
+SIGNIFICANT_CHANGE_SIGNALS = {
+    "crossed_12m_without_release",
+    "meaningful_activity_shift",
+    "reports_newly_missing",
+    "releases_disappeared",
+    "releases_appeared",
 }
 
 
@@ -574,6 +582,49 @@ def tool_recent_changes(arguments: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def tool_significant_changes(arguments: dict[str, Any]) -> dict[str, Any]:
+    sources = _resolve_sources(arguments)
+    podling = optional_string(arguments, "podling")
+    limit = optional_integer(arguments, "limit") or 25
+    include_signals = optional_list_of_choices(arguments, "include_signals", SIGNIFICANT_CHANGE_SIGNALS)
+
+    data = build_records(**sources)
+    records = _maybe_filter_podling(data["records"], podling)
+    items = []
+    for record in records:
+        changes = significant_change_events(record)
+        if include_signals:
+            changes = [change for change in changes if change["signal"] in include_signals]
+        if not changes:
+            continue
+        items.append(
+            {
+                "podling": record.name,
+                "preferred_window": record.preferred_window,
+                "reporting_window": record.reporting_window,
+                "changes": changes,
+                "summary": f"{record.name} has {len(changes)} significant factual change(s) in IPMC scan fields.",
+                "explainability": _explainability(
+                    record,
+                    [
+                        "This view filters recent changes to release-window crossings and large activity shifts.",
+                        "It reports source facts and transparent thresholds without ranking or recommendations.",
+                    ],
+                ),
+            }
+        )
+
+    items.sort(key=lambda item: (-len(item["changes"]), item["podling"].casefold()))
+    return {
+        "podlings_source": data["podlings_source"],
+        "health_source": data["health_source"],
+        "generated_for": "significant_changes",
+        "as_of_date": sources["as_of_date"],
+        "included_signals": include_signals,
+        "items": items[:limit],
+    }
+
+
 def tool_reporting_gaps(arguments: dict[str, Any]) -> dict[str, Any]:
     sources = _resolve_sources(arguments)
     podling = optional_string(arguments, "podling")
@@ -760,7 +811,7 @@ def tool_reporting_cohort(arguments: dict[str, Any]) -> dict[str, Any]:
     for record in records:
         reporting_gaps = reporting_gap_signals(record)
         release_signals = release_visibility_signals(record)
-        recent_changes = recent_change_events(record)
+        recent_changes = significant_change_events(record)
 
         if reporting_gaps:
             buckets["reporting_issues"].append(_cohort_bucket_item(record, reporting_gaps, "reason"))
@@ -976,6 +1027,14 @@ TOOLS: dict[str, dict[str, Any]] = {
         description=("Return per-podling recent deltas the IPMC should scan, excluding unchanged or static fields."),
         handler=tool_recent_changes,
         properties=schemas.recent_changes_properties(),
+    ),
+    "significant_changes": schemas.tool_definition(
+        description=(
+            "Return a structured factual subset of recent changes: no 12-month releases, large activity shifts, "
+            "and newly visible reporting or release transitions."
+        ),
+        handler=tool_significant_changes,
+        properties=schemas.significant_changes_properties(),
     ),
     "reporting_gaps": schemas.tool_definition(
         description="Return podlings with Incubator reporting compliance gaps, excluding activity analysis.",

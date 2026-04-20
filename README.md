@@ -154,6 +154,21 @@ Arguments:
 - `podling`: optional podling name filter
 - `limit`: optional max number of results
 
+### `significant_changes`
+
+Return a structured factual subset of recent changes that usually merit IPMC scan attention. This currently includes
+podlings with no visible releases in the 12-month health window, large activity shifts between the 3-month and 12-month
+windows, newly missing reports, and release visibility appearing or disappearing.
+
+Arguments:
+
+- `podlings_source`
+- `health_source`
+- `as_of_date`
+- `podling`: optional podling name filter
+- `limit`: optional max number of results
+- `include_signals`: optional signal filter list
+
 ### `reporting_gaps`
 
 Return podlings with Incubator reporting compliance gaps. Activity signals are intentionally excluded.

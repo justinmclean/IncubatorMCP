@@ -375,6 +375,63 @@ class ToolTests(unittest.TestCase):
         self.assertNotIn("unique_committers", [change["field"] for change in changes])
         assert_explainability(self, payload["items"][0]["explainability"])
 
+    def test_significant_changes_returns_release_crossing_and_activity_shifts(self) -> None:
+        record = OversightRecord(
+            podling={"name": "Signal", "status": "current", "mentors": ["A", "B"], "startdate": "2024-01-01"},
+            report_summary={
+                "latest_metrics": {
+                    "3m": {"commits": 20, "unique_committers": 4, "dev_unique_posters": 2, "releases": 0},
+                    "12m": {"commits": 30, "unique_committers": 8, "dev_unique_posters": 20, "releases": 0},
+                }
+            },
+            preferred_window="3m",
+            preferred_metrics={"commits": 20, "unique_committers": 4, "dev_unique_posters": 2, "releases": 0},
+            reporting_window="12m",
+            reporting_metrics={"reports_count": 1, "avg_mentor_signoffs": 2.0},
+            as_of_date="2026-04-18",
+        )
+        data = {
+            "records": [record],
+            "podlings_source": {"source": "podlings.xml"},
+            "health_source": {"reports_dir": "reports"},
+        }
+        with mock.patch.object(tools, "build_records", return_value=data):
+            payload = tools.tool_significant_changes({})
+
+        changes = payload["items"][0]["changes"]
+        self.assertEqual(payload["generated_for"], "significant_changes")
+        self.assertEqual(
+            [change["change"] for change in changes],
+            [
+                "crossed_12m_without_release",
+                "commits_activity_shift_up",
+                "dev_unique_posters_activity_shift_down",
+            ],
+        )
+        self.assertEqual(changes[1]["evidence"]["annualized_3m"], 80)
+        self.assertEqual(changes[1]["evidence"]["threshold_ratio"], 2.0)
+        assert_explainability(self, payload["items"][0]["explainability"])
+
+    def test_significant_changes_signal_filter(self) -> None:
+        record = OversightRecord(
+            podling={"name": "Filter", "status": "current", "mentors": ["A", "B"], "startdate": "2024-01-01"},
+            report_summary={"latest_metrics": {"3m": {"commits": 20}, "12m": {"commits": 30, "releases": 0}}},
+            preferred_window="3m",
+            preferred_metrics={"commits": 20, "releases": 0},
+            reporting_window="12m",
+            reporting_metrics={"reports_count": 1, "avg_mentor_signoffs": 2.0},
+            as_of_date="2026-04-18",
+        )
+        data = {
+            "records": [record],
+            "podlings_source": {"source": "podlings.xml"},
+            "health_source": {"reports_dir": "reports"},
+        }
+        with mock.patch.object(tools, "build_records", return_value=data):
+            payload = tools.tool_significant_changes({"include_signals": ["meaningful_activity_shift"]})
+
+        self.assertEqual([change["signal"] for change in payload["items"][0]["changes"]], ["meaningful_activity_shift"])
+
     def test_reporting_gaps_are_compliance_only(self) -> None:
         record = OversightRecord(
             podling={"name": "Reporter", "status": "current", "mentors": ["A", "B"], "startdate": "2025-01-01"},
@@ -595,7 +652,7 @@ class ToolTests(unittest.TestCase):
         )
         changed = OversightRecord(
             podling={"name": "C-Changed", "status": "current", "mentors": ["A", "B"], "startdate": "2024-01-01"},
-            report_summary={"latest_metrics": {"3m": {}, "12m": {"releases": 1}}},
+            report_summary={"latest_metrics": {"3m": {"commits": 20}, "12m": {"commits": 20, "releases": 1}}},
             preferred_window="3m",
             preferred_metrics={"commits": 20, "unique_committers": 4, "releases": 1, "trends": {"commits": "up"}},
             reporting_window="12m",

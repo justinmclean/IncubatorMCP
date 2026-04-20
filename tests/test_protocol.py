@@ -23,6 +23,7 @@ class ProtocolTests(unittest.TestCase):
             tool_names,
             [
                 "recent_changes",
+                "significant_changes",
                 "reporting_gaps",
                 "reporting_reliability",
                 "release_visibility",

@@ -92,6 +92,28 @@ def recent_changes_properties() -> dict[str, Any]:
     }
 
 
+def significant_changes_properties() -> dict[str, Any]:
+    return {
+        **base_properties(),
+        "podling": PODLING_PROPERTY,
+        "limit": LIMIT_PROPERTY,
+        "include_signals": {
+            "type": "array",
+            "description": "Optional significant-change signal filters",
+            "items": {
+                "type": "string",
+                "enum": [
+                    "crossed_12m_without_release",
+                    "meaningful_activity_shift",
+                    "reports_newly_missing",
+                    "releases_disappeared",
+                    "releases_appeared",
+                ],
+            },
+        },
+    }
+
+
 def reporting_gaps_properties() -> dict[str, Any]:
     return {
         **base_properties(),

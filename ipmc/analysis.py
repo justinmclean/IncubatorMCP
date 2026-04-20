@@ -18,6 +18,12 @@ CONTRIBUTOR_BREADTH_MIN = 3
 STALLED_COMMITS_MAX = 10
 STALLED_COMMITTERS_MAX = 2
 STALLED_DISCUSSION_MESSAGES_MAX = 10
+SIGNIFICANT_ACTIVITY_SHIFT_RATIO = 2.0
+SIGNIFICANT_ACTIVITY_FIELDS = {
+    "commits": "commit activity",
+    "unique_committers": "active committer breadth",
+    "dev_unique_posters": "dev-list participation",
+}
 
 
 def severity_value(value: str) -> int:
@@ -356,6 +362,86 @@ def recent_change_events(record: OversightRecord) -> list[dict[str, Any]]:
                 "why_it_matters": why,
             }
         )
+
+    return events
+
+
+def _activity_shift_event(record: OversightRecord, field: str, label: str) -> dict[str, Any] | None:
+    metrics_3m = _window_metrics(record, "3m")
+    metrics_12m = _window_metrics(record, "12m")
+    value_3m = _metric(metrics_3m, field)
+    value_12m = _metric(metrics_12m, field)
+    if not isinstance(value_3m, int | float) or not isinstance(value_12m, int | float) or value_12m <= 0:
+        return None
+
+    annualized_3m = value_3m * 4
+    ratio = annualized_3m / value_12m
+    if ratio >= SIGNIFICANT_ACTIVITY_SHIFT_RATIO:
+        direction = "up"
+        change = f"{field}_activity_shift_up"
+        reason = f"Annualized 3-month {label} is at least {SIGNIFICANT_ACTIVITY_SHIFT_RATIO:g}x the 12-month value."
+    elif ratio <= 1 / SIGNIFICANT_ACTIVITY_SHIFT_RATIO:
+        direction = "down"
+        change = f"{field}_activity_shift_down"
+        reason = f"Annualized 3-month {label} is at most half the 12-month value."
+    else:
+        return None
+
+    return {
+        "change": change,
+        "signal": "meaningful_activity_shift",
+        "field": field,
+        "direction": direction,
+        "current_value": value_3m,
+        "comparison_value": value_12m,
+        "window": "3m",
+        "comparison_window": "12m",
+        "evidence": {
+            "value_3m": value_3m,
+            "value_12m": value_12m,
+            "annualized_3m": annualized_3m,
+            "ratio": round(ratio, 2),
+            "threshold_ratio": SIGNIFICANT_ACTIVITY_SHIFT_RATIO,
+        },
+        "why_it_matters": reason,
+    }
+
+
+def significant_change_events(record: OversightRecord) -> list[dict[str, Any]]:
+    """Return narrow factual recent changes that usually merit IPMC scan attention."""
+    events: list[dict[str, Any]] = []
+
+    releases_12m = release_stall_releases(record)
+    if releases_12m == 0 and release_stall_age_eligible(record.months_in_incubation):
+        events.append(
+            {
+                "change": "crossed_12m_without_release",
+                "signal": "crossed_12m_without_release",
+                "field": "releases",
+                "direction": "down",
+                "current_value": releases_12m,
+                "window": RELEASE_STALL_WINDOW,
+                "evidence": {
+                    "releases_12m": releases_12m,
+                    "months_in_incubation": record.months_in_incubation,
+                    "minimum_months_in_incubation": RELEASE_STALL_MIN_MONTHS,
+                },
+                "why_it_matters": f"No releases are visible in the {RELEASE_STALL_WINDOW} health window.",
+            }
+        )
+
+    for field, label in SIGNIFICANT_ACTIVITY_FIELDS.items():
+        event = _activity_shift_event(record, field, label)
+        if event:
+            events.append(event)
+
+    for change in recent_change_events(record):
+        if change["change"] in {"reports_newly_missing", "releases_disappeared", "releases_appeared"}:
+            significant_change = {
+                **change,
+                "signal": change["change"],
+            }
+            events.append(significant_change)
 
     return events
 
