@@ -136,6 +136,13 @@ def release_visibility_properties() -> dict[str, Any]:
     }
 
 
+def reporting_cohort_properties() -> dict[str, Any]:
+    return {
+        **base_properties(),
+        "podling": PODLING_PROPERTY,
+    }
+
+
 def stalled_podlings_properties() -> dict[str, Any]:
     return {
         **base_properties(),

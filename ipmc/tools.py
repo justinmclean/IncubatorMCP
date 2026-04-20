@@ -654,6 +654,84 @@ def tool_release_visibility(arguments: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _cohort_bucket_item(record: Any, signals: list[dict[str, Any]], summary_key: str) -> dict[str, Any]:
+    return {
+        "podling": record.name,
+        "signals": signals,
+        "summary": signals[0][summary_key],
+    }
+
+
+def tool_reporting_cohort(arguments: dict[str, Any]) -> dict[str, Any]:
+    sources = _resolve_sources(arguments)
+    podling = optional_string(arguments, "podling")
+
+    data = build_records(**sources)
+    records = [
+        record for record in _maybe_filter_podling(data["records"], podling) if record.report_summary is not None
+    ]
+    buckets: dict[str, list[dict[str, Any]]] = {
+        "reporting_issues": [],
+        "release_visibility_issues": [],
+        "recent_significant_changes": [],
+        "no_obvious_concerns": [],
+    }
+
+    for record in records:
+        reporting_gaps = reporting_gap_signals(record)
+        release_signals = release_visibility_signals(record)
+        recent_changes = recent_change_events(record)
+
+        if reporting_gaps:
+            buckets["reporting_issues"].append(_cohort_bucket_item(record, reporting_gaps, "reason"))
+        if release_signals:
+            buckets["release_visibility_issues"].append(_cohort_bucket_item(record, release_signals, "reason"))
+        if recent_changes:
+            buckets["recent_significant_changes"].append(_cohort_bucket_item(record, recent_changes, "why_it_matters"))
+        if not reporting_gaps and not release_signals and not recent_changes:
+            buckets["no_obvious_concerns"].append(
+                {
+                    "podling": record.name,
+                    "summary": "No reporting, release visibility, or recent-change concerns were detected.",
+                    "observed": {
+                        "preferred_window": record.preferred_window,
+                        "reporting_window": record.reporting_window,
+                    },
+                }
+            )
+
+    for items in buckets.values():
+        items.sort(key=lambda item: item["podling"].casefold())
+
+    return {
+        "podlings_source": data["podlings_source"],
+        "health_source": data["health_source"],
+        "generated_for": "reporting_cohort",
+        "as_of_date": sources["as_of_date"],
+        "cohort_definition": "Current podlings with apache-health report data in the selected health source.",
+        "bucket_order": [
+            "reporting_issues",
+            "release_visibility_issues",
+            "recent_significant_changes",
+            "no_obvious_concerns",
+        ],
+        "counts": {name: len(items) for name, items in buckets.items()},
+        "buckets": buckets,
+        "explainability": _summary_explainability(
+            records,
+            [
+                "The cohort includes current podlings with apache-health report data.",
+                "Buckets are non-ranked and sorted alphabetically inside each bucket.",
+                (
+                    "Reporting issues, release visibility issues, and recent significant changes "
+                    "are evaluated independently."
+                ),
+            ],
+            example_podlings=[record.name for record in records[:5]],
+        ),
+    }
+
+
 def tool_stalled_podlings(arguments: dict[str, Any]) -> dict[str, Any]:
     sources = _resolve_sources(arguments)
     limit = optional_integer(arguments, "limit") or 25
@@ -830,6 +908,14 @@ TOOLS: dict[str, dict[str, Any]] = {
         ),
         handler=tool_release_visibility,
         properties=schemas.release_visibility_properties(),
+    ),
+    "reporting_cohort": schemas.tool_definition(
+        description=(
+            "Return current reporting podlings grouped into non-ranked IPMC review buckets: "
+            "reporting issues, release visibility issues, recent significant changes, and no obvious concerns."
+        ),
+        handler=tool_reporting_cohort,
+        properties=schemas.reporting_cohort_properties(),
     ),
     "stalled_podlings": schemas.tool_definition(
         description=("Return podlings that match the strict low-delivery, no-release stalled definition."),

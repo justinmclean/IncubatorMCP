@@ -481,6 +481,75 @@ class ToolTests(unittest.TestCase):
         self.assertIn("contributors_no_releases", signals)
         assert_explainability(self, payload["items"][0]["explainability"])
 
+    def test_reporting_cohort_groups_current_reporting_podlings_without_ranking(self) -> None:
+        reporting_issue = OversightRecord(
+            podling={"name": "B-Report", "status": "current", "mentors": ["A", "B"], "startdate": "2024-01-01"},
+            report_summary={"latest_metrics": {"3m": {}, "12m": {"releases": 1}}},
+            preferred_window="3m",
+            preferred_metrics={"commits": 12, "unique_committers": 3, "releases": 1},
+            reporting_window="12m",
+            reporting_metrics={"reports_count": 0, "trends": {"reports_count": "down"}},
+            as_of_date="2026-04-18",
+        )
+        release_issue = OversightRecord(
+            podling={"name": "A-Release", "status": "current", "mentors": ["A", "B"], "startdate": "2024-01-01"},
+            report_summary={"latest_metrics": {"3m": {}, "12m": {"releases": 0}}},
+            preferred_window="3m",
+            preferred_metrics={"commits": 10, "unique_committers": 2, "unique_authors": 2, "releases": 0},
+            reporting_window="12m",
+            reporting_metrics={"reports_count": 1, "avg_mentor_signoffs": 2.0},
+            as_of_date="2026-04-18",
+        )
+        changed = OversightRecord(
+            podling={"name": "C-Changed", "status": "current", "mentors": ["A", "B"], "startdate": "2024-01-01"},
+            report_summary={"latest_metrics": {"3m": {}, "12m": {"releases": 1}}},
+            preferred_window="3m",
+            preferred_metrics={"commits": 20, "unique_committers": 4, "releases": 1, "trends": {"commits": "up"}},
+            reporting_window="12m",
+            reporting_metrics={"reports_count": 1, "avg_mentor_signoffs": 2.0},
+            as_of_date="2026-04-18",
+        )
+        quiet = OversightRecord(
+            podling={"name": "D-Quiet", "status": "current", "mentors": ["A", "B"], "startdate": "2024-01-01"},
+            report_summary={"latest_metrics": {"3m": {}, "12m": {"releases": 1}}},
+            preferred_window="3m",
+            preferred_metrics={"commits": 15, "unique_committers": 3, "releases": 1},
+            reporting_window="12m",
+            reporting_metrics={"reports_count": 1, "avg_mentor_signoffs": 2.0},
+            as_of_date="2026-04-18",
+        )
+        not_in_reporting_cohort = OversightRecord(
+            podling={"name": "E-MissingHealth", "status": "current", "mentors": ["A"], "startdate": "2024-01-01"},
+            report_summary=None,
+            preferred_window=None,
+            preferred_metrics=None,
+            reporting_window=None,
+            reporting_metrics=None,
+            as_of_date="2026-04-18",
+        )
+        data = {
+            "records": [quiet, changed, release_issue, reporting_issue, not_in_reporting_cohort],
+            "podlings_source": {"source": "podlings.xml"},
+            "health_source": {"reports_dir": "reports"},
+        }
+        with mock.patch.object(tools, "build_records", return_value=data):
+            payload = tools.tool_reporting_cohort({})
+
+        self.assertEqual(payload["generated_for"], "reporting_cohort")
+        self.assertEqual(payload["counts"]["reporting_issues"], 1)
+        self.assertEqual(payload["counts"]["release_visibility_issues"], 1)
+        self.assertEqual(payload["counts"]["recent_significant_changes"], 2)
+        self.assertEqual(payload["counts"]["no_obvious_concerns"], 1)
+        self.assertEqual(payload["buckets"]["reporting_issues"][0]["podling"], "B-Report")
+        self.assertEqual(payload["buckets"]["release_visibility_issues"][0]["podling"], "A-Release")
+        self.assertEqual(
+            [item["podling"] for item in payload["buckets"]["recent_significant_changes"]],
+            ["B-Report", "C-Changed"],
+        )
+        self.assertEqual(payload["buckets"]["no_obvious_concerns"][0]["podling"], "D-Quiet")
+        self.assertNotIn("E-MissingHealth", str(payload["buckets"]))
+        assert_explainability(self, payload["explainability"])
+
     def test_stalled_podlings_require_all_stall_conditions(self) -> None:
         stalled = OversightRecord(
             podling={"name": "Stalled", "status": "current", "mentors": ["A", "B"], "startdate": "2024-01-01"},

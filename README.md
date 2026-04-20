@@ -110,6 +110,7 @@ Use this when preparing for a regular Incubator oversight pass:
 
 - "What changed across current podlings since the last IPMC review?"
 - "Which podlings need IPMC attention this week, and why?"
+- "Group this reporting cohort into reporting issues, release visibility issues, recent changes, and no obvious concerns."
 - "Show me current podlings with reporting gaps, but keep that separate from community health concerns."
 - "Which podlings have release visibility concerns that the IPMC should look at?"
 - "Give me a detailed brief for the podlings that look most concerning."
@@ -177,6 +178,17 @@ Arguments:
 - `podling`: optional podling name filter
 - `limit`: optional max number of results
 - `include_signals`: optional release visibility signal filter list
+
+### `reporting_cohort`
+
+Return current reporting podlings grouped into non-ranked IPMC review buckets: reporting issues, release visibility issues, recent significant changes, and no obvious concerns.
+
+Arguments:
+
+- `podlings_source`
+- `health_source`
+- `as_of_date`
+- `podling`: optional podling name filter
 
 ### `stalled_podlings`
 

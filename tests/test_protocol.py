@@ -25,6 +25,7 @@ class ProtocolTests(unittest.TestCase):
                 "recent_changes",
                 "reporting_gaps",
                 "release_visibility",
+                "reporting_cohort",
                 "stalled_podlings",
                 "ipmc_watchlist",
                 "graduation_readiness",
