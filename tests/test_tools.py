@@ -380,12 +380,12 @@ class ToolTests(unittest.TestCase):
             podling={"name": "Signal", "status": "current", "mentors": ["A", "B"], "startdate": "2024-01-01"},
             report_summary={
                 "latest_metrics": {
-                    "3m": {"commits": 20, "unique_committers": 4, "dev_unique_posters": 2, "releases": 0},
+                    "3m": {"commits": 3, "unique_committers": 5, "dev_unique_posters": 2, "releases": 0},
                     "12m": {"commits": 30, "unique_committers": 8, "dev_unique_posters": 20, "releases": 0},
                 }
             },
             preferred_window="3m",
-            preferred_metrics={"commits": 20, "unique_committers": 4, "dev_unique_posters": 2, "releases": 0},
+            preferred_metrics={"commits": 3, "unique_committers": 5, "dev_unique_posters": 2, "releases": 0},
             reporting_window="12m",
             reporting_metrics={"reports_count": 1, "avg_mentor_signoffs": 2.0},
             as_of_date="2026-04-18",
@@ -404,20 +404,20 @@ class ToolTests(unittest.TestCase):
             [change["change"] for change in changes],
             [
                 "crossed_12m_without_release",
-                "commits_activity_shift_up",
+                "commits_down_committers_up",
                 "dev_unique_posters_activity_shift_down",
             ],
         )
-        self.assertEqual(changes[1]["evidence"]["annualized_3m"], 80)
-        self.assertEqual(changes[1]["evidence"]["threshold_ratio"], 2.0)
+        self.assertEqual(changes[1]["evidence"]["commits"]["annualized_3m"], 12)
+        self.assertEqual(changes[1]["evidence"]["commits"]["threshold_ratio"], 2.0)
         assert_explainability(self, payload["items"][0]["explainability"])
 
     def test_significant_changes_signal_filter(self) -> None:
         record = OversightRecord(
             podling={"name": "Filter", "status": "current", "mentors": ["A", "B"], "startdate": "2024-01-01"},
-            report_summary={"latest_metrics": {"3m": {"commits": 20}, "12m": {"commits": 30, "releases": 0}}},
+            report_summary={"latest_metrics": {"3m": {"commits": 3}, "12m": {"commits": 30, "releases": 0}}},
             preferred_window="3m",
-            preferred_metrics={"commits": 20, "releases": 0},
+            preferred_metrics={"commits": 3, "releases": 0},
             reporting_window="12m",
             reporting_metrics={"reports_count": 1, "avg_mentor_signoffs": 2.0},
             as_of_date="2026-04-18",
@@ -689,14 +689,17 @@ class ToolTests(unittest.TestCase):
         self.assertEqual(payload["counts"]["reporting_issues"], 1)
         self.assertEqual(payload["counts"]["release_visibility_issues"], 1)
         self.assertEqual(payload["counts"]["recent_significant_changes"], 2)
-        self.assertEqual(payload["counts"]["no_obvious_concerns"], 1)
+        self.assertEqual(payload["counts"]["no_obvious_concerns"], 2)
         self.assertEqual(payload["buckets"]["reporting_issues"][0]["podling"], "B-Report")
         self.assertEqual(payload["buckets"]["release_visibility_issues"][0]["podling"], "A-Release")
         self.assertEqual(
             [item["podling"] for item in payload["buckets"]["recent_significant_changes"]],
-            ["B-Report", "C-Changed"],
+            ["A-Release", "B-Report"],
         )
-        self.assertEqual(payload["buckets"]["no_obvious_concerns"][0]["podling"], "D-Quiet")
+        self.assertEqual(
+            [item["podling"] for item in payload["buckets"]["no_obvious_concerns"]],
+            ["C-Changed", "D-Quiet"],
+        )
         self.assertNotIn("E-MissingHealth", str(payload["buckets"]))
         assert_explainability(self, payload["explainability"])
 

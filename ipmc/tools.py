@@ -70,7 +70,6 @@ SIGNIFICANT_CHANGE_SIGNALS = {
     "meaningful_activity_shift",
     "reports_newly_missing",
     "releases_disappeared",
-    "releases_appeared",
 }
 
 
@@ -607,7 +606,10 @@ def tool_significant_changes(arguments: dict[str, Any]) -> dict[str, Any]:
                 "explainability": _explainability(
                     record,
                     [
-                        "This view filters recent changes to release-window crossings and large activity shifts.",
+                        (
+                            "This view filters recent changes to release-window crossings and review-worthy "
+                            "activity shifts."
+                        ),
                         "It reports source facts and transparent thresholds without ranking or recommendations.",
                     ],
                 ),

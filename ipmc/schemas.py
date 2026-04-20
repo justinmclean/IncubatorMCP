@@ -107,7 +107,6 @@ def significant_changes_properties() -> dict[str, Any]:
                     "meaningful_activity_shift",
                     "reports_newly_missing",
                     "releases_disappeared",
-                    "releases_appeared",
                 ],
             },
         },

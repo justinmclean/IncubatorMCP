@@ -157,8 +157,8 @@ Arguments:
 ### `significant_changes`
 
 Return a structured factual subset of recent changes that usually merit IPMC scan attention. This currently includes
-podlings with no visible releases in the 12-month health window, large activity shifts between the 3-month and 12-month
-windows, newly missing reports, and release visibility appearing or disappearing.
+podlings with no visible releases in the 12-month health window, review-worthy activity shifts between the 3-month and
+12-month windows, newly missing reports, and release visibility disappearing.
 
 Arguments:
 

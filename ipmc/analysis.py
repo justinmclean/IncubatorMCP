@@ -366,7 +366,7 @@ def recent_change_events(record: OversightRecord) -> list[dict[str, Any]]:
     return events
 
 
-def _activity_shift_event(record: OversightRecord, field: str, label: str) -> dict[str, Any] | None:
+def _activity_shift_values(record: OversightRecord, field: str) -> dict[str, Any] | None:
     metrics_3m = _window_metrics(record, "3m")
     metrics_12m = _window_metrics(record, "12m")
     value_3m = _metric(metrics_3m, field)
@@ -376,34 +376,67 @@ def _activity_shift_event(record: OversightRecord, field: str, label: str) -> di
 
     annualized_3m = value_3m * 4
     ratio = annualized_3m / value_12m
-    if ratio >= SIGNIFICANT_ACTIVITY_SHIFT_RATIO:
-        direction = "up"
-        change = f"{field}_activity_shift_up"
-        reason = f"Annualized 3-month {label} is at least {SIGNIFICANT_ACTIVITY_SHIFT_RATIO:g}x the 12-month value."
-    elif ratio <= 1 / SIGNIFICANT_ACTIVITY_SHIFT_RATIO:
-        direction = "down"
-        change = f"{field}_activity_shift_down"
-        reason = f"Annualized 3-month {label} is at most half the 12-month value."
-    else:
+    return {
+        "value_3m": value_3m,
+        "value_12m": value_12m,
+        "annualized_3m": annualized_3m,
+        "ratio": round(ratio, 2),
+        "threshold_ratio": SIGNIFICANT_ACTIVITY_SHIFT_RATIO,
+    }
+
+
+def _activity_shift_event(record: OversightRecord, field: str, label: str) -> dict[str, Any] | None:
+    evidence = _activity_shift_values(record, field)
+    if not evidence or evidence["ratio"] > 1 / SIGNIFICANT_ACTIVITY_SHIFT_RATIO:
+        return None
+
+    reason = f"Annualized 3-month {label} is at most half the 12-month value."
+
+    return {
+        "change": f"{field}_activity_shift_down",
+        "signal": "meaningful_activity_shift",
+        "field": field,
+        "direction": "down",
+        "current_value": evidence["value_3m"],
+        "comparison_value": evidence["value_12m"],
+        "window": "3m",
+        "comparison_window": "12m",
+        "evidence": evidence,
+        "why_it_matters": reason,
+    }
+
+
+def _mixed_activity_shift_event(record: OversightRecord) -> dict[str, Any] | None:
+    commits = _activity_shift_values(record, "commits")
+    committers = _activity_shift_values(record, "unique_committers")
+    if (
+        not commits
+        or not committers
+        or commits["ratio"] > 1 / SIGNIFICANT_ACTIVITY_SHIFT_RATIO
+        or committers["ratio"] < SIGNIFICANT_ACTIVITY_SHIFT_RATIO
+    ):
         return None
 
     return {
-        "change": change,
+        "change": "commits_down_committers_up",
         "signal": "meaningful_activity_shift",
-        "field": field,
-        "direction": direction,
-        "current_value": value_3m,
-        "comparison_value": value_12m,
+        "field": "activity_mix",
+        "direction": "mixed",
+        "current_value": {
+            "commits_3m": commits["value_3m"],
+            "unique_committers_3m": committers["value_3m"],
+        },
+        "comparison_value": {
+            "commits_12m": commits["value_12m"],
+            "unique_committers_12m": committers["value_12m"],
+        },
         "window": "3m",
         "comparison_window": "12m",
         "evidence": {
-            "value_3m": value_3m,
-            "value_12m": value_12m,
-            "annualized_3m": annualized_3m,
-            "ratio": round(ratio, 2),
-            "threshold_ratio": SIGNIFICANT_ACTIVITY_SHIFT_RATIO,
+            "commits": commits,
+            "unique_committers": committers,
         },
-        "why_it_matters": reason,
+        "why_it_matters": "Commit activity dropped while active committer breadth increased across health windows.",
     }
 
 
@@ -430,13 +463,19 @@ def significant_change_events(record: OversightRecord) -> list[dict[str, Any]]:
             }
         )
 
+    mixed_activity = _mixed_activity_shift_event(record)
+    if mixed_activity:
+        events.append(mixed_activity)
+
     for field, label in SIGNIFICANT_ACTIVITY_FIELDS.items():
+        if mixed_activity and field in {"commits", "unique_committers"}:
+            continue
         event = _activity_shift_event(record, field, label)
         if event:
             events.append(event)
 
     for change in recent_change_events(record):
-        if change["change"] in {"reports_newly_missing", "releases_disappeared", "releases_appeared"}:
+        if change["change"] in {"reports_newly_missing", "releases_disappeared"}:
             significant_change = {
                 **change,
                 "signal": change["change"],
