@@ -129,6 +129,20 @@ Use this when a mentor wants a fast status check before following up with podlin
 
 This keeps source facts, derived concerns, and confidence visible so mentors can decide what needs action versus clarification.
 
+### Focused Oversight Questions
+
+Use these when you want a narrower answer for one part of an Incubator oversight review:
+
+- "What are the most important recent changes across current podlings?"
+- "Which podlings have crossed a year without a visible release, or show a meaningful activity shift?"
+- "Which current podlings are missing recent Incubator reports?"
+- "Which podlings have a repeated reporting problem rather than a one-off late report?"
+- "Does FooPodling have any release visibility concerns?"
+- "Group this month's reporting podlings into reporting issues, release concerns, recent changes, and no obvious concerns."
+- "Which podlings look genuinely stalled, based on low activity, low discussion, and no recent releases?"
+
+These examples are intentionally narrow so the output stays factual and separated by concern type.
+
 ### Generating a Board Summary
 
 This server is not a board tool, but it can help assemble Incubator context for a human-written board report:
