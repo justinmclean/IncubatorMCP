@@ -189,6 +189,55 @@ class DataTests(unittest.TestCase):
         module.load_reports.assert_called_once_with("/tmp/report-cache")
         self.assertEqual(meta["source"], "/tmp/report-cache")
 
+    def test_load_incubator_general_mail_uses_mail_mcp_cache(self) -> None:
+        module = mock.Mock()
+        module.load_cached_mail.return_value = {
+            "cache_dir": "/tmp/mail-cache",
+            "count": 2,
+            "returned": 2,
+            "emails": [
+                {
+                    "id": "alpha-message",
+                    "subject": "[DISCUSS] Alpha graduation",
+                    "from": "Mentor <mentor@apache.org>",
+                    "date": "2026-04-20 00:00:00 UTC",
+                },
+                {
+                    "id": "other-message",
+                    "subject": "Incubator housekeeping",
+                    "from": "Mentor <mentor@apache.org>",
+                    "date": "2026-04-19 00:00:00 UTC",
+                },
+            ],
+        }
+
+        with mock.patch.object(data.Path, "exists", return_value=True):
+            with mock.patch.object(data, "incubator_mail_client", module):
+                mail, meta = data.load_incubator_general_mail(
+                    "/tmp/mail-cache",
+                    [{"name": "Alpha"}, {"name": "Bravo"}],
+                )
+
+        module.load_cached_mail.assert_called_once_with(cache_dir="/tmp/mail-cache")
+        self.assertEqual(meta["source"], "/tmp/mail-cache")
+        self.assertTrue(meta["available"])
+        self.assertEqual(meta["message_count"], 2)
+        self.assertEqual(meta["podling_count"], 1)
+        self.assertEqual(mail["alpha"][0]["id"], "alpha-message")
+        self.assertNotIn("bravo", mail)
+
+    def test_environment_overrides_mail_source_default(self) -> None:
+        module = mock.Mock()
+        module.load_cached_mail.return_value = {"cache_dir": "/tmp/mail-cache", "count": 0, "emails": []}
+
+        with mock.patch.dict(data.os.environ, {data.MAIL_SOURCE_ENV: "/tmp/mail-cache"}):
+            with mock.patch.object(data.Path, "exists", return_value=True):
+                with mock.patch.object(data, "incubator_mail_client", module):
+                    _, meta = data.load_incubator_general_mail()
+
+        module.load_cached_mail.assert_called_once_with(cache_dir="/tmp/mail-cache")
+        self.assertEqual(meta["source"], "/tmp/mail-cache")
+
     def test_default_health_source_matches_health_mcp_default(self) -> None:
         self.assertEqual(data.DEFAULT_HEALTH_SOURCE, "reports")
 
@@ -210,3 +259,4 @@ class DataTests(unittest.TestCase):
         self.assertEqual(len(all_records["records"]), 4)
         self.assertEqual(current_only["records"][0].name, "Alpha")
         self.assertIn("report_source", current_only)
+        self.assertIn("mail_source", current_only)

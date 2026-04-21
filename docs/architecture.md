@@ -9,6 +9,7 @@ It does not replace the source MCPs. Instead, it composes:
 - `apache-podlings-mcp` for podling lifecycle and status data
 - `apache-health-mcp` for parsed health-report metrics
 - `apache-incubator-reports-mcp` for cached Incubator report entries
+- `apache-incubator-mail-mcp` for cached Incubator general-list message summaries
 
 The resulting tools provide IPMC-oriented synthesis: recent-change scans, reporting-gap checks, reporting-reliability patterns, release-visibility checks, stalled-podling detection, watchlists, graduation readiness, podling briefs, mentoring attention, and community-health summaries.
 
@@ -30,13 +31,15 @@ This module is responsible for source loading and composition.
 
 It:
 
-- imports `PodlingsMCP`, `HealthMCP`, and ReportMCP modules
+- imports `PodlingsMCP`, `HealthMCP`, ReportMCP, and MailMCP modules
 - resolves podlings data from the tool `podlings_source`, `--podlings-source`, `IPMC_PODLINGS_SOURCE`, or the ASF `podlings.xml` URL
 - resolves the health reports directory from the tool `health_source`, `--health-source`, `IPMC_HEALTH_SOURCE`, or `reports`
 - resolves cached Incubator reports from the tool `report_source`, `--report-source`, `IPMC_REPORT_SOURCE`, or `.cache/incubator-reports`
+- resolves cached Incubator general-list mail from the tool `mail_source`, `--mail-source`, `IPMC_MAIL_SOURCE`, or `.cache/incubator-general-mail`
 - loads podling lifecycle records
 - loads health report summaries
 - loads ReportMCP podling report entries when cached reports are available
+- loads MailMCP general-list message summaries when cached mail is available
 - joins source data into `OversightRecord` objects
 - selects the preferred health window in this order: `3m`, `6m`, `12m`, `to-date`
 
@@ -45,12 +48,14 @@ The default sources can be configured with startup arguments:
 - `--podlings-source`
 - `--health-source`
 - `--report-source`
+- `--mail-source`
 
 They can also be configured with environment variables:
 
 - `IPMC_PODLINGS_SOURCE`
 - `IPMC_HEALTH_SOURCE`
 - `IPMC_REPORT_SOURCE`
+- `IPMC_MAIL_SOURCE`
 
 ### `ipmc/analysis.py`
 
@@ -141,7 +146,7 @@ Tests are self-contained. They use temporary source data while importing the ins
 
 - This is an IPMC / Incubator oversight tool, not a board tool.
 - Source facts should remain distinguishable from derived opinions.
-- Source metadata should expose `source` consistently; package-specific metadata keys may be retained as aliases.
+- Source metadata should expose `source` consistently; package-specific metadata keys such as `reports_dir` and `cache_dir` may be retained as aliases.
 - Narrow tools should stay narrow: recent changes are delta-only, significant changes are factual scan-worthy changes only, reporting gaps are compliance-only, release visibility is governance-only, and stalled podlings require all stall conditions.
 - Tool outputs should be actionable but transparent about evidence and confidence.
 - Each opinionated output should expose source data used, human-readable reasoning, confidence, and missing evidence.

@@ -14,6 +14,10 @@ REPORT_SOURCE_PROPERTY = {
     "type": "string",
     "description": "Optional local path for ReportMCP cached ASF Incubator report files",
 }
+MAIL_SOURCE_PROPERTY = {
+    "type": "string",
+    "description": "Optional local path for MailMCP cached ASF Incubator general-list message files",
+}
 AS_OF_DATE_PROPERTY = {
     "type": "string",
     "description": "Optional YYYY-MM-DD date to evaluate data as of a specific day",
@@ -72,6 +76,7 @@ def base_properties() -> dict[str, Any]:
         "podlings_source": PODLINGS_SOURCE_PROPERTY,
         "health_source": HEALTH_SOURCE_PROPERTY,
         "report_source": REPORT_SOURCE_PROPERTY,
+        "mail_source": MAIL_SOURCE_PROPERTY,
         "as_of_date": AS_OF_DATE_PROPERTY,
     }
 

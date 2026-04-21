@@ -220,6 +220,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--podlings-source", help="Optional URL or local path for podlings.xml")
     parser.add_argument("--health-source", help="Path to apache-health report Markdown files")
     parser.add_argument("--report-source", help="Path to ReportMCP cached ASF Incubator report files")
+    parser.add_argument("--mail-source", help="Path to MailMCP cached ASF Incubator general-list message files")
     return parser.parse_args(argv)
 
 
@@ -229,6 +230,7 @@ def main(argv: list[str] | None = None) -> int:
         podlings_source=args.podlings_source,
         health_source=args.health_source,
         report_source=args.report_source,
+        mail_source=args.mail_source,
     )
 
     for raw_line in sys.stdin:

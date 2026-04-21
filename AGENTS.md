@@ -4,7 +4,7 @@
 
 This repository contains a small dependency-light MCP server for Apache Incubator PMC (IPMC) oversight views.
 
-It composes lifecycle data from the `apache-podlings-mcp` package and health-report data from the `apache-health-mcp` package into opinionated Incubator-level tools for podling risk, readiness, mentoring needs, and community-health summaries.
+It composes lifecycle data from the `apache-podlings-mcp` package, health-report data from the `apache-health-mcp` package, cached report data from `apache-incubator-reports-mcp`, and cached general-list mail data from `apache-incubator-mail-mcp` into opinionated Incubator-level tools for podling risk, readiness, mentoring needs, and community-health summaries.
 
 This is an IPMC / Incubator oversight MCP, not a board tool.
 
@@ -33,6 +33,7 @@ This is an IPMC / Incubator oversight MCP, not a board tool.
 
 - `podlings_source` defaults to the ASF Incubator `podlings.xml` URL through `PodlingsMCP`.
 - `health_source` defaults to the `--health-source` startup argument, or `reports` if unset.
+- `mail_source` defaults to the `--mail-source` startup argument, or `.cache/incubator-general-mail` if unset.
 - Source MCP modules are imported from installed packages; local sibling checkouts are not required.
 - Oversight views focus on current podlings unless a lower-level helper explicitly includes non-current records.
 - Health analysis prefers the freshest available window in this order: `3m`, `6m`, `12m`, `to-date`.

@@ -17,14 +17,22 @@ try:
 except ImportError:  # pragma: no cover - exercised when optional source package is absent locally
     incubator_report_parser = None  # type: ignore[assignment]
 
+try:
+    from apache_incubator_mail_mcp import client as incubator_mail_client  # type: ignore[import-not-found]
+except ImportError:  # pragma: no cover - exercised when optional source package is absent locally
+    incubator_mail_client = None  # type: ignore[assignment]
+
 DEFAULT_HEALTH_SOURCE = "reports"
 DEFAULT_REPORT_SOURCE = ".cache/incubator-reports"
+DEFAULT_MAIL_SOURCE = ".cache/incubator-general-mail"
 PODLINGS_SOURCE_ENV = "IPMC_PODLINGS_SOURCE"
 HEALTH_SOURCE_ENV = "IPMC_HEALTH_SOURCE"
 REPORT_SOURCE_ENV = "IPMC_REPORT_SOURCE"
+MAIL_SOURCE_ENV = "IPMC_MAIL_SOURCE"
 _CONFIGURED_PODLINGS_SOURCE: str | None = None
 _CONFIGURED_HEALTH_SOURCE: str | None = None
 _CONFIGURED_REPORT_SOURCE: str | None = None
+_CONFIGURED_MAIL_SOURCE: str | None = None
 
 PREFERRED_WINDOW_ORDER = ("3m", "6m", "12m", "to-date")
 REPORTING_WINDOW_ORDER = ("12m", "6m", "to-date", "3m")
@@ -45,18 +53,23 @@ def configure_defaults(
     health_source: str | None = None,
     report_source: str | None = None,
     reports_source: str | None = None,
+    mail_source: str | None = None,
+    mail_cache_dir: str | None = None,
 ) -> None:
-    global _CONFIGURED_HEALTH_SOURCE, _CONFIGURED_PODLINGS_SOURCE, _CONFIGURED_REPORT_SOURCE
+    global _CONFIGURED_HEALTH_SOURCE, _CONFIGURED_MAIL_SOURCE, _CONFIGURED_PODLINGS_SOURCE, _CONFIGURED_REPORT_SOURCE
 
     resolved_podlings_source = podlings_source or podlings_repo
     resolved_health_source = health_source or health_repo
     resolved_report_source = report_source or reports_source
+    resolved_mail_source = mail_source or mail_cache_dir
     if resolved_podlings_source:
         _CONFIGURED_PODLINGS_SOURCE = resolved_podlings_source
     if resolved_health_source:
         _CONFIGURED_HEALTH_SOURCE = resolved_health_source
     if resolved_report_source:
         _CONFIGURED_REPORT_SOURCE = resolved_report_source
+    if resolved_mail_source:
+        _CONFIGURED_MAIL_SOURCE = resolved_mail_source
 
 
 def _env_default(name: str) -> str | None:
@@ -97,6 +110,7 @@ class OversightRecord:
     reporting_metrics: dict[str, Any] | None
     as_of_date: str | None
     incubator_reports: list[dict[str, Any]] = field(default_factory=list)
+    incubator_general_mail: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def name(self) -> str:
@@ -151,6 +165,14 @@ def _normalize_report_source_meta(overview: dict[str, Any], requested_source: st
     source = meta.get("source") or meta.get("reports_dir") or requested_source
     meta["source"] = source
     meta.setdefault("reports_dir", source)
+    return meta
+
+
+def _normalize_mail_source_meta(overview: dict[str, Any], requested_source: str) -> dict[str, Any]:
+    meta = dict(overview)
+    source = meta.get("source") or meta.get("cache_dir") or requested_source
+    meta["source"] = source
+    meta.setdefault("cache_dir", source)
     return meta
 
 
@@ -232,6 +254,11 @@ def _resolved_report_source(report_source: str | None = None) -> tuple[str, bool
     return explicit or DEFAULT_REPORT_SOURCE, explicit is not None
 
 
+def _resolved_mail_source(mail_source: str | None = None) -> tuple[str, bool]:
+    explicit = mail_source or _CONFIGURED_MAIL_SOURCE or _env_default(MAIL_SOURCE_ENV)
+    return explicit or DEFAULT_MAIL_SOURCE, explicit is not None
+
+
 def load_incubator_reports(report_source: str | None = None) -> tuple[dict[str, list[dict[str, Any]]], dict[str, Any]]:
     reports_dir, explicit = _resolved_report_source(report_source)
     if incubator_report_parser is None:
@@ -287,17 +314,78 @@ def load_incubator_reports(report_source: str | None = None) -> tuple[dict[str, 
     return by_podling, meta
 
 
+def _mail_matches_podling(message: dict[str, Any], podling_name: str) -> bool:
+    needle = podling_name.casefold()
+    haystack = "\n".join(
+        str(message.get(field, "")) for field in ("subject", "from", "message_id", "id", "thread_id")
+    ).casefold()
+    return needle in haystack
+
+
+def load_incubator_general_mail(
+    mail_source: str | None = None,
+    podlings: list[dict[str, Any]] | None = None,
+) -> tuple[dict[str, list[dict[str, Any]]], dict[str, Any]]:
+    cache_dir, explicit = _resolved_mail_source(mail_source)
+    if incubator_mail_client is None:
+        return (
+            {},
+            {
+                "source": cache_dir,
+                "cache_dir": cache_dir,
+                "message_count": 0,
+                "podling_count": 0,
+                "available": False,
+                "reason": "apache-incubator-mail-mcp is not installed.",
+            },
+        )
+
+    if not Path(cache_dir).expanduser().exists():
+        if explicit:
+            raise FileNotFoundError(f"MailMCP source path does not exist: {cache_dir}")
+        return (
+            {},
+            {
+                "source": cache_dir,
+                "cache_dir": cache_dir,
+                "message_count": 0,
+                "podling_count": 0,
+                "available": False,
+                "reason": "Default MailMCP cache directory does not exist.",
+            },
+        )
+
+    cached = incubator_mail_client.load_cached_mail(cache_dir=cache_dir)
+    messages = cached.get("emails") or []
+    by_podling: dict[str, list[dict[str, Any]]] = {}
+    for podling in podlings or []:
+        podling_name = str(podling.get("name", ""))
+        if not podling_name:
+            continue
+        matches = [message for message in messages if _mail_matches_podling(message, podling_name)]
+        if matches:
+            by_podling[podling_name.casefold()] = matches
+
+    meta = _normalize_mail_source_meta(cached, cache_dir)
+    meta["message_count"] = cached.get("count", len(messages))
+    meta["podling_count"] = len(by_podling)
+    meta["available"] = True
+    return by_podling, meta
+
+
 def build_records(
     *,
     podlings_source: str | None = None,
     health_source: str | None = None,
     report_source: str | None = None,
+    mail_source: str | None = None,
     as_of_date: str | None = None,
     include_non_current: bool = False,
 ) -> dict[str, Any]:
     podlings, podlings_meta = load_podlings(podlings_source)
     summaries, health_meta = load_health_summaries(health_source)
     report_entries, report_meta = load_incubator_reports(report_source)
+    mail_entries, mail_meta = load_incubator_general_mail(mail_source, podlings)
 
     records: list[OversightRecord] = []
     for podling in podlings:
@@ -312,6 +400,7 @@ def build_records(
                 podling=podling,
                 report_summary=summary,
                 incubator_reports=report_entries.get(str(podling.get("name", "")).casefold(), []),
+                incubator_general_mail=mail_entries.get(str(podling.get("name", "")).casefold(), []),
                 preferred_window=preferred_window,
                 preferred_metrics=preferred_metrics,
                 reporting_window=reporting_window,
@@ -325,4 +414,5 @@ def build_records(
         "podlings_source": podlings_meta,
         "health_source": health_meta,
         "report_source": report_meta,
+        "mail_source": mail_meta,
     }

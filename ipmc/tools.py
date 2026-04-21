@@ -139,6 +139,7 @@ def _resolve_sources(arguments: dict[str, Any]) -> dict[str, Any]:
         "podlings_source": optional_string(arguments, "podlings_source"),
         "health_source": optional_string(arguments, "health_source"),
         "report_source": optional_string(arguments, "report_source"),
+        "mail_source": optional_string(arguments, "mail_source"),
         "as_of_date": optional_string(arguments, "as_of_date"),
     }
 
@@ -154,6 +155,19 @@ def _report_source_meta(data: dict[str, Any]) -> dict[str, Any]:
             "source": "",
             "reports_dir": "",
             "report_count": 0,
+            "podling_count": 0,
+            "available": False,
+        },
+    )
+
+
+def _mail_source_meta(data: dict[str, Any]) -> dict[str, Any]:
+    return data.get(
+        "mail_source",
+        {
+            "source": "",
+            "cache_dir": "",
+            "message_count": 0,
             "podling_count": 0,
             "available": False,
         },
@@ -250,7 +264,18 @@ def _source_data_used(record: Any) -> list[dict[str, Any]]:
             ),
         },
     }
-    return [podling_data, health_data, report_data]
+    mail_data: dict[str, Any] = {
+        "source": "apache-incubator-mail",
+        "fields": ["id", "subject", "from", "date", "thread_id", "permalink"],
+        "available": bool(record.incubator_general_mail),
+        "observed": {
+            "matching_general_mail_count": len(record.incubator_general_mail),
+            "latest_message_date": (
+                record.incubator_general_mail[0].get("date") if record.incubator_general_mail else None
+            ),
+        },
+    }
+    return [podling_data, health_data, report_data, mail_data]
 
 
 def _missing_context(record: Any, extra_missing: list[str] | None = None) -> list[str]:
@@ -281,6 +306,8 @@ def _missing_context(record: Any, extra_missing: list[str] | None = None) -> lis
                 missing.append(label)
     if not record.incubator_reports:
         missing.append("Cached Incubator report entries from ReportMCP.")
+    if not record.incubator_general_mail:
+        missing.append("Cached Incubator general-list messages from MailMCP.")
     if extra_missing:
         missing.extend(extra_missing)
     return sorted(set(missing)) or ["No obvious missing source data for this opinion."]
@@ -309,6 +336,7 @@ def _summary_explainability(
 ) -> dict[str, Any]:
     reporting_records = [record for record in records if record.report_summary is not None]
     incubator_report_records = [record for record in records if record.incubator_reports]
+    incubator_mail_records = [record for record in records if record.incubator_general_mail]
     missing_health = [record.name for record in records if record.report_summary is None]
     low_mentor = [record.name for record in records if record.mentor_count <= 1]
     return {
@@ -341,6 +369,16 @@ def _summary_explainability(
                     ][:5],
                 },
             },
+            {
+                "source": "apache-incubator-mail",
+                "fields": ["cached general@incubator.apache.org message summaries"],
+                "observed": {
+                    "podling_with_general_mail_count": len(incubator_mail_records),
+                    "missing_general_mail_examples": [
+                        record.name for record in records if not record.incubator_general_mail
+                    ][:5],
+                },
+            },
         ],
         "reasoning": reasoning,
         "confidence": "high"
@@ -355,6 +393,9 @@ def _summary_explainability(
                     "Health reports for all podlings in scope." if missing_health else None,
                     "Cached Incubator report entries for all podlings in scope."
                     if len(incubator_report_records) != len(records)
+                    else None,
+                    "Cached Incubator general-list messages for all podlings in scope."
+                    if len(incubator_mail_records) != len(records)
                     else None,
                 ]
                 if item
@@ -411,6 +452,7 @@ def tool_ipmc_watchlist(arguments: dict[str, Any]) -> dict[str, Any]:
         "podlings_source": data["podlings_source"],
         "health_source": data["health_source"],
         "report_source": _report_source_meta(data),
+        "mail_source": _mail_source_meta(data),
         "generated_for": "ipmc_watchlist",
         "as_of_date": sources["as_of_date"],
         "items": items[:limit],
@@ -518,6 +560,7 @@ def tool_podling_brief(arguments: dict[str, Any]) -> dict[str, Any]:
             str(data["podlings_source"].get("source")),
             _source_location(data["health_source"]),
             _source_location(_report_source_meta(data)),
+            _source_location(_mail_source_meta(data)),
         ],
         "explainability": _explainability(
             record,
@@ -593,6 +636,7 @@ def tool_mentoring_attention_needed(arguments: dict[str, Any]) -> dict[str, Any]
         "podlings_source": data["podlings_source"],
         "health_source": data["health_source"],
         "report_source": _report_source_meta(data),
+        "mail_source": _mail_source_meta(data),
         "items": items[:limit],
     }
 
@@ -631,6 +675,7 @@ def tool_recent_changes(arguments: dict[str, Any]) -> dict[str, Any]:
         "podlings_source": data["podlings_source"],
         "health_source": data["health_source"],
         "report_source": _report_source_meta(data),
+        "mail_source": _mail_source_meta(data),
         "generated_for": "recent_changes",
         "as_of_date": sources["as_of_date"],
         "items": items[:limit],
@@ -677,6 +722,7 @@ def tool_significant_changes(arguments: dict[str, Any]) -> dict[str, Any]:
         "podlings_source": data["podlings_source"],
         "health_source": data["health_source"],
         "report_source": _report_source_meta(data),
+        "mail_source": _mail_source_meta(data),
         "generated_for": "significant_changes",
         "as_of_date": sources["as_of_date"],
         "included_signals": include_signals,
@@ -724,6 +770,7 @@ def tool_reporting_gaps(arguments: dict[str, Any]) -> dict[str, Any]:
         "podlings_source": data["podlings_source"],
         "health_source": data["health_source"],
         "report_source": _report_source_meta(data),
+        "mail_source": _mail_source_meta(data),
         "generated_for": "reporting_gaps",
         "as_of_date": sources["as_of_date"],
         "items": items[:limit],
@@ -786,6 +833,7 @@ def tool_reporting_reliability(arguments: dict[str, Any]) -> dict[str, Any]:
         "podlings_source": data["podlings_source"],
         "health_source": data["health_source"],
         "report_source": _report_source_meta(data),
+        "mail_source": _mail_source_meta(data),
         "generated_for": "reporting_reliability",
         "as_of_date": sources["as_of_date"],
         "category_order": category_order,
@@ -841,6 +889,7 @@ def tool_release_visibility(arguments: dict[str, Any]) -> dict[str, Any]:
         "podlings_source": data["podlings_source"],
         "health_source": data["health_source"],
         "report_source": _report_source_meta(data),
+        "mail_source": _mail_source_meta(data),
         "generated_for": "release_visibility",
         "as_of_date": sources["as_of_date"],
         "items": items[:limit],
@@ -900,6 +949,7 @@ def tool_reporting_cohort(arguments: dict[str, Any]) -> dict[str, Any]:
         "podlings_source": data["podlings_source"],
         "health_source": data["health_source"],
         "report_source": _report_source_meta(data),
+        "mail_source": _mail_source_meta(data),
         "generated_for": "reporting_cohort",
         "as_of_date": sources["as_of_date"],
         "cohort_definition": "Current podlings with apache-health report data in the selected health source.",
@@ -965,6 +1015,7 @@ def tool_stalled_podlings(arguments: dict[str, Any]) -> dict[str, Any]:
         "podlings_source": data["podlings_source"],
         "health_source": data["health_source"],
         "report_source": _report_source_meta(data),
+        "mail_source": _mail_source_meta(data),
         "generated_for": "stalled_podlings",
         "as_of_date": sources["as_of_date"],
         "items": items[:limit],
@@ -1059,6 +1110,7 @@ def tool_community_health_summary(arguments: dict[str, Any]) -> dict[str, Any]:
         "podlings_source": data["podlings_source"],
         "health_source": data["health_source"],
         "report_source": _report_source_meta(data),
+        "mail_source": _mail_source_meta(data),
         "generated_at_scope": group_by,
         "scope": scope,
         "overall_summary": overall_summary,

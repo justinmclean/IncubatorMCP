@@ -20,6 +20,7 @@ classifiers = [
 dependencies = [
   "apache-health-mcp @ git+https://github.com/justinmclean/HealthMCP.git@master",
   "apache-incubator-reports-mcp @ git+https://github.com/justinmclean/ReportMCP.git@master",
+  "apache-incubator-mail-mcp @ git+https://github.com/justinmclean/MailMCP.git@master",
   "apache-podlings-mcp @ git+https://github.com/justinmclean/PodlingsMCP.git@master",
 ]
 

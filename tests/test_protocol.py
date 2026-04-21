@@ -84,12 +84,15 @@ class ProtocolTests(unittest.TestCase):
                 "/tmp/reports",
                 "--report-source",
                 "/tmp/report-cache",
+                "--mail-source",
+                "/tmp/mail-cache",
             ]
         )
 
         self.assertEqual(args.podlings_source, "/tmp/podlings.xml")
         self.assertEqual(args.health_source, "/tmp/reports")
         self.assertEqual(args.report_source, "/tmp/report-cache")
+        self.assertEqual(args.mail_source, "/tmp/mail-cache")
 
     def test_call_tool_success(self) -> None:
         with make_fixture_sources() as (podlings_source, health_source):
@@ -262,6 +265,8 @@ class ProtocolTests(unittest.TestCase):
                         "/tmp/reports",
                         "--report-source",
                         "/tmp/report-cache",
+                        "--mail-source",
+                        "/tmp/mail-cache",
                     ]
                 )
 
@@ -270,4 +275,5 @@ class ProtocolTests(unittest.TestCase):
             podlings_source="/tmp/podlings.xml",
             health_source="/tmp/reports",
             report_source="/tmp/report-cache",
+            mail_source="/tmp/mail-cache",
         )
