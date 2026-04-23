@@ -53,7 +53,7 @@ ipmc-mcp \
 For local development without installing first, you can still run:
 
 ```bash
-PYTHONPATH=/path/to/HealthMCP/src:/path/to/PodlingsMCP/src:/path/to/ReportMCP/src:/path/to/MailMCP/src \
+PYTHONPATH=/path/to/HealthMCP/src:/path/to/PodlingsMCP/src:/path/to/ReportMCP/src:/path/to/MailMCP/src:/path/to/ReleaseMCP/src \
   python3 server.py \
   --health-source /path/to/incubator/tools/health/reports \
   --report-source /path/to/ReportMCP/.cache/incubator-reports \
@@ -88,8 +88,9 @@ The default runtime imports its source MCP libraries from installed packages:
 - `apache-health-mcp`
 - `apache-incubator-reports-mcp`
 - `apache-incubator-mail-mcp`
+- `apache-incubator-releases-mcp`
 
-When installed with `pip`, these dependencies are pulled from their Git repositories. If you run `server.py` directly from a checkout instead, make the source packages importable with `PYTHONPATH` or install them first. Tool calls can still override the source data paths with `podlings_source`, `health_source`, `report_source`, and `mail_source`.
+When installed with `pip`, these dependencies are pulled from their Git repositories. If you run `server.py` directly from a checkout instead, make the source packages importable with `PYTHONPATH` or install them first.
 
 Configure startup defaults with command-line arguments or environment variables:
 
@@ -101,7 +102,7 @@ Configure startup defaults with command-line arguments or environment variables:
 - `--release-dist-base` or `IPMC_RELEASE_DIST_BASE`: ReleaseMCP `dist.apache.org` base URL or local release directory
 - `--release-archive-base` or `IPMC_RELEASE_ARCHIVE_BASE`: ReleaseMCP `archive.apache.org` base URL or local archive directory
 
-Per-tool `podlings_source`, `health_source`, `report_source`, `mail_source`, `mail_api_base`, `release_dist_base`, and `release_archive_base` arguments take precedence over startup defaults. If `podlings_source` is unset, it defaults to the ASF `podlings.xml` URL. If `health_source` is unset, it defaults to `reports`. If `report_source` is unset, it defaults to `.cache/incubator-reports`; a missing default ReportMCP cache is reported as unavailable rather than treated as an error. If `mail_source` is unset, it defaults to `.cache/incubator-general-mail`; a missing default MailMCP cache falls back to live MailMCP/Pony Mail search without writing cache files.
+Source defaults can also be set once per MCP session with `configure_sources`. Normal tool calls should only pass task arguments such as `podling`, `limit`, or filters; per-tool source arguments are for one-off overrides.
 
 ## Test
 
@@ -187,16 +188,19 @@ The intended output is briefing material for IPMC judgment, not text that should
 
 ## Tools
 
+Set source paths once with `configure_sources`. After that, use the normal tool arguments below; only pass source paths
+to an individual tool when you really want to override the session defaults for that one call.
+
+### `configure_sources`
+
+Set or inspect the source paths used by later tool calls.
+
 ### `recent_changes`
 
 Return per-podling recent deltas the IPMC should scan. This is delta-based only: unchanged/static fields are excluded.
 
 Arguments:
 
-- `podlings_source`: optional URL or local file path for `podlings.xml`
-- `health_source`: optional local reports directory for apache-health markdown reports
-- `report_source`: optional local directory of ReportMCP cached Incubator reports
-- `mail_source`: optional local directory of MailMCP cached Incubator general-list messages
 - `as_of_date`: optional `YYYY-MM-DD` date for duration-sensitive views
 - `podling`: optional podling name filter
 - `limit`: optional max number of results
@@ -209,10 +213,6 @@ podlings with no visible releases in the 12-month health window, review-worthy a
 
 Arguments:
 
-- `podlings_source`
-- `health_source`
-- `report_source`
-- `mail_source`
 - `as_of_date`
 - `podling`: optional podling name filter
 - `limit`: optional max number of results
@@ -224,10 +224,6 @@ Return podlings with Incubator reporting compliance gaps. Activity signals are i
 
 Arguments:
 
-- `podlings_source`
-- `health_source`
-- `report_source`
-- `mail_source`
 - `as_of_date`
 - `podling`: optional podling name filter
 - `limit`: optional max number of results
@@ -239,10 +235,6 @@ Return objective reporting reliability patterns over time, grouped into consiste
 
 Arguments:
 
-- `podlings_source`
-- `health_source`
-- `report_source`
-- `mail_source`
 - `as_of_date`
 - `podling`: optional podling name filter
 - `limit`: optional max number of results per category
@@ -254,10 +246,6 @@ Return release-governance visibility concerns, including no releases in 12 month
 
 Arguments:
 
-- `podlings_source`
-- `health_source`
-- `report_source`
-- `mail_source`
 - `as_of_date`
 - `podling`: optional podling name filter
 - `limit`: optional max number of results
@@ -270,31 +258,18 @@ Return likely MailMCP release vote/result thread evidence for one podling alongs
 Arguments:
 
 - `podling`: required podling name
-- `podlings_source`
-- `health_source`
-- `report_source`
-- `mail_source`
 - `as_of_date`
-- `mail_api_base`: optional MailMCP/Pony Mail API base URL for live Incubator general-list search
 - `mail_timespan`: optional MailMCP timespan expression, defaults to the MailMCP release-search window
 - `limit`: optional max number of vote/result threads
 
 ### `release_artifact_evidence`
 
-Return ReleaseMCP artifact, signature, checksum, cadence, and Incubator naming evidence for one podling alongside IPMC release visibility signals.
+Return ReleaseMCP artifact, signature, checksum, cadence, and Incubator naming evidence for one podling.
 
 Arguments:
 
 - `podling`: required podling name
-- `podlings_source`
-- `health_source`
-- `report_source`
-- `mail_source`
-- `mail_api_base`
-- `as_of_date`
-- `release_dist_base`: optional ReleaseMCP `dist.apache.org` base URL or local release directory
-- `release_archive_base`: optional ReleaseMCP `archive.apache.org` base URL or local archive directory
-- `release_max_depth`: optional traversal depth under the podling directory, `0` or `1`
+- `release_max_depth`: optional traversal depth under the podling directory, defaults to `1`; use `0` for a shallower scan
 
 ### `reporting_cohort`
 
@@ -302,10 +277,6 @@ Return current reporting podlings grouped into non-ranked IPMC review buckets: r
 
 Arguments:
 
-- `podlings_source`
-- `health_source`
-- `report_source`
-- `mail_source`
 - `as_of_date`
 - `podling`: optional podling name filter
 
@@ -315,10 +286,6 @@ Return podlings matching the strict stalled definition: low commits, low committ
 
 Arguments:
 
-- `podlings_source`
-- `health_source`
-- `report_source`
-- `mail_source`
 - `as_of_date`
 - `limit`: optional max number of results
 
@@ -328,10 +295,6 @@ Return podlings that most need IPMC attention based on combined lifecycle and he
 
 Arguments:
 
-- `podlings_source`: optional URL or local file path for `podlings.xml`
-- `health_source`: optional local reports directory for apache-health markdown reports
-- `report_source`: optional local directory of ReportMCP cached Incubator reports
-- `mail_source`: optional local directory of MailMCP cached Incubator general-list messages
 - `as_of_date`: optional `YYYY-MM-DD` date for duration-sensitive views
 - `limit`: optional max number of results
 - `severity_at_least`: optional minimum severity filter
@@ -344,10 +307,6 @@ Assess whether a podling appears ready, near ready, or not yet ready for graduat
 Arguments:
 
 - `podling`: required podling name
-- `podlings_source`
-- `health_source`
-- `report_source`
-- `mail_source`
 - `as_of_date`
 - `include_evidence`: optional boolean, defaults to true
 - `strict_mode`: optional boolean
@@ -359,10 +318,6 @@ Return an IPMC-oriented briefing for one podling.
 Arguments:
 
 - `podling`: required podling name
-- `podlings_source`
-- `health_source`
-- `report_source`
-- `mail_source`
 - `as_of_date`
 - `focus`: optional area list
 - `brief_format`: optional `summary` or `detailed`
@@ -373,10 +328,6 @@ Return podlings where mentoring intervention appears necessary.
 
 Arguments:
 
-- `podlings_source`
-- `health_source`
-- `report_source`
-- `mail_source`
 - `as_of_date`
 - `limit`: optional max number of results
 - `urgency_at_least`: optional minimum urgency filter
@@ -388,10 +339,6 @@ Return an IPMC-level summary of community-health patterns across podlings.
 
 Arguments:
 
-- `podlings_source`
-- `health_source`
-- `report_source`
-- `mail_source`
 - `as_of_date`
 - `scope`: optional `all_podlings`, `active_podlings`, or `reporting_podlings`
 - `group_by`: optional `none`, `risk_band`, `mentor_load`, or `age_band`

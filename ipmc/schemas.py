@@ -102,6 +102,18 @@ def base_properties() -> dict[str, Any]:
     }
 
 
+def source_defaults_properties() -> dict[str, Any]:
+    return {
+        "podlings_source": PODLINGS_SOURCE_PROPERTY,
+        "health_source": HEALTH_SOURCE_PROPERTY,
+        "report_source": REPORT_SOURCE_PROPERTY,
+        "mail_source": MAIL_SOURCE_PROPERTY,
+        "mail_api_base": MAIL_API_BASE_PROPERTY,
+        "release_dist_base": RELEASE_DIST_BASE_PROPERTY,
+        "release_archive_base": RELEASE_ARCHIVE_BASE_PROPERTY,
+    }
+
+
 def watchlist_properties() -> dict[str, Any]:
     return {
         **base_properties(),
@@ -222,7 +234,6 @@ def release_vote_evidence_properties() -> dict[str, Any]:
 
 def release_artifact_evidence_properties() -> dict[str, Any]:
     return {
-        **base_properties(),
         "release_dist_base": RELEASE_DIST_BASE_PROPERTY,
         "release_archive_base": RELEASE_ARCHIVE_BASE_PROPERTY,
         "release_max_depth": RELEASE_MAX_DEPTH_PROPERTY,

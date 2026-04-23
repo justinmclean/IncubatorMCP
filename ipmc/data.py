@@ -308,6 +308,35 @@ def _resolved_release_archive_base(release_archive_base: str | None = None) -> s
     )
 
 
+def source_defaults() -> dict[str, Any]:
+    report_source, report_explicit = _resolved_report_source()
+    mail_source, mail_explicit = _resolved_mail_source()
+    return {
+        "configured": {
+            "podlings_source": _CONFIGURED_PODLINGS_SOURCE,
+            "health_source": _CONFIGURED_HEALTH_SOURCE,
+            "report_source": _CONFIGURED_REPORT_SOURCE,
+            "mail_source": _CONFIGURED_MAIL_SOURCE,
+            "mail_api_base": _CONFIGURED_MAIL_API_BASE,
+            "release_dist_base": _CONFIGURED_RELEASE_DIST_BASE,
+            "release_archive_base": _CONFIGURED_RELEASE_ARCHIVE_BASE,
+        },
+        "effective": {
+            "podlings_source": _CONFIGURED_PODLINGS_SOURCE
+            or _env_default(PODLINGS_SOURCE_ENV)
+            or podlings_data.DEFAULT_SOURCE,
+            "health_source": _CONFIGURED_HEALTH_SOURCE or _env_default(HEALTH_SOURCE_ENV) or DEFAULT_HEALTH_SOURCE,
+            "report_source": report_source,
+            "report_source_explicit": report_explicit,
+            "mail_source": mail_source,
+            "mail_source_explicit": mail_explicit,
+            "mail_api_base": _resolved_mail_api_base(),
+            "release_dist_base": _resolved_release_dist_base(),
+            "release_archive_base": _resolved_release_archive_base(),
+        },
+    }
+
+
 def load_incubator_reports(report_source: str | None = None) -> tuple[dict[str, list[dict[str, Any]]], dict[str, Any]]:
     reports_dir, explicit = _resolved_report_source(report_source)
     if incubator_report_parser is None:
@@ -551,7 +580,13 @@ def load_podling_release_artifacts(
         "releases": [],
     }
     if incubator_releases is None:
-        return unavailable | {"reason": "apache-incubator-releases-mcp is not installed."}
+        return unavailable | {
+            "reason": (
+                "apache-incubator-releases-mcp is not importable in the IPMC server environment. "
+                "Install or update IPMC dependencies, or include the ReleaseMCP src directory on PYTHONPATH "
+                "when running server.py from a checkout."
+            )
+        }
 
     try:
         evidence = incubator_releases.release_overview(
@@ -561,7 +596,7 @@ def load_podling_release_artifacts(
             max_depth=max_depth,
         )
     except Exception as exc:
-        return unavailable | {"reason": f"ReleaseMCP release overview failed: {exc}"}
+        return unavailable | {"reason": f"ReleaseMCP dist/archive scan failed: {exc}"}
 
     evidence["source"] = "apache-incubator-releases"
     evidence["dist_base"] = dist_base
@@ -584,11 +619,20 @@ def build_records(
     mail_api_base: str | None = None,
     as_of_date: str | None = None,
     include_non_current: bool = False,
+    include_mail: bool = True,
 ) -> dict[str, Any]:
     podlings, podlings_meta = load_podlings(podlings_source)
     summaries, health_meta = load_health_summaries(health_source)
     report_entries, report_meta = load_incubator_reports(report_source)
-    mail_entries, mail_meta = load_incubator_general_mail(mail_source, podlings, mail_api_base=mail_api_base)
+    if include_mail:
+        mail_entries, mail_meta = load_incubator_general_mail(mail_source, podlings, mail_api_base=mail_api_base)
+    else:
+        mail_entries = {}
+        mail_meta = {
+            "source": "not_loaded",
+            "available": False,
+            "reason": "General-list mail evidence was not needed for this tool call.",
+        }
 
     records: list[OversightRecord] = []
     for podling in podlings:

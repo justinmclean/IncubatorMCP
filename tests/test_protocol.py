@@ -22,6 +22,7 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(
             tool_names,
             [
+                "configure_sources",
                 "recent_changes",
                 "significant_changes",
                 "reporting_gaps",
@@ -136,7 +137,7 @@ class ProtocolTests(unittest.TestCase):
             protocol.handle_message({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})["result"][
                 "tools"
             ][0]["name"],
-            "recent_changes",
+            "configure_sources",
         )
         error = protocol.handle_message({"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": []})
         self.assertEqual(error["error"]["code"], -32602)

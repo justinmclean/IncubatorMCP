@@ -42,7 +42,7 @@ It:
 - loads podling lifecycle records
 - loads health report summaries
 - loads ReportMCP podling report entries when cached reports are available
-- loads MailMCP general-list message summaries when cached mail is available, or uses read-only live MailMCP search when the default cache is missing
+- loads MailMCP general-list message summaries when a tool needs them; if the default cache is missing, this uses read-only live MailMCP search
 - loads MailMCP release vote/result thread history for the `release_vote_evidence` tool only
 - loads ReleaseMCP artifact/cadence evidence for the `release_artifact_evidence` tool only
 - joins source data into `OversightRecord` objects
@@ -91,6 +91,7 @@ It owns:
 
 - argument validation helpers
 - source argument resolution
+- process-level source default configuration
 - lookup helpers
 - tool output shaping
 - explainability envelopes for derived opinions
@@ -99,6 +100,7 @@ It owns:
 The public tools are:
 
 - `recent_changes`
+- `configure_sources`
 - `significant_changes`
 - `reporting_gaps`
 - `reporting_reliability`

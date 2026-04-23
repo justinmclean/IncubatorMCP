@@ -17,7 +17,13 @@ from .analysis import (
     significant_change_events,
     stalled_podling_signal,
 )
-from .data import build_records, load_podling_release_artifacts, load_podling_release_vote_history
+from .data import (
+    build_records,
+    configure_defaults,
+    load_podling_release_artifacts,
+    load_podling_release_vote_history,
+    source_defaults,
+)
 
 SEVERITIES = {"low", "medium", "high", "critical"}
 BRIEF_FORMATS = {"summary", "detailed"}
@@ -151,6 +157,18 @@ def _resolve_sources(arguments: dict[str, Any]) -> dict[str, Any]:
         "mail_source": optional_string(arguments, "mail_source"),
         "mail_api_base": optional_string(arguments, "mail_api_base"),
         "as_of_date": optional_string(arguments, "as_of_date"),
+    }
+
+
+def _resolve_source_defaults(arguments: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "podlings_source": optional_string(arguments, "podlings_source"),
+        "health_source": optional_string(arguments, "health_source"),
+        "report_source": optional_string(arguments, "report_source"),
+        "mail_source": optional_string(arguments, "mail_source"),
+        "mail_api_base": optional_string(arguments, "mail_api_base"),
+        "release_dist_base": optional_string(arguments, "release_dist_base"),
+        "release_archive_base": optional_string(arguments, "release_archive_base"),
     }
 
 
@@ -423,6 +441,18 @@ def _supporting_signals(evaluation: dict[str, Any], record: Any) -> list[dict[st
         }
         for signal in evaluation["signals"]
     ]
+
+
+def tool_configure_sources(arguments: dict[str, Any]) -> dict[str, Any]:
+    defaults = _resolve_source_defaults(arguments)
+    configured = {key: value for key, value in defaults.items() if value is not None}
+    if configured:
+        configure_defaults(**configured)
+    return {
+        "generated_for": "configure_sources",
+        "updated": sorted(configured),
+        "source_defaults": source_defaults(),
+    }
 
 
 def tool_ipmc_watchlist(arguments: dict[str, Any]) -> dict[str, Any]:
@@ -975,23 +1005,19 @@ def tool_release_vote_evidence(arguments: dict[str, Any]) -> dict[str, Any]:
 
 
 def tool_release_artifact_evidence(arguments: dict[str, Any]) -> dict[str, Any]:
-    sources = _resolve_sources(arguments)
     podling = require_string(arguments, "podling")
     release_dist_base = optional_string(arguments, "release_dist_base")
     release_archive_base = optional_string(arguments, "release_archive_base")
     release_max_depth = optional_depth(arguments, "release_max_depth")
 
-    data = build_records(**sources)
-    record = _record_by_name(data["records"], podling)
     evidence = load_podling_release_artifacts(
-        record.name,
+        podling,
         release_dist_base=release_dist_base,
         release_archive_base=release_archive_base,
         max_depth=release_max_depth,
     )
     cadence = evidence.get("cadence") or {}
     releases = evidence.get("releases") or []
-    release_signals = release_visibility_signals(record)
     missing_sidecars = []
     for release in releases:
         for artifact in release.get("source_artifacts") or []:
@@ -1004,24 +1030,18 @@ def tool_release_artifact_evidence(arguments: dict[str, Any]) -> dict[str, Any]:
     release_count = int(evidence.get("release_count") or 0)
     summary = (
         f"ReleaseMCP found {release_count} release group(s) and "
-        f"{evidence.get('source_artifact_count', 0)} source artifact(s) for {record.name}."
+        f"{evidence.get('source_artifact_count', 0)} source artifact(s) for {podling}."
     )
 
-    recommended_action = (
-        "Compare ReleaseMCP artifact evidence with release visibility signals and recent vote evidence."
-    )
+    recommended_action = "Compare ReleaseMCP artifact evidence with recent vote evidence and release visibility."
     if not evidence.get("available"):
         recommended_action = "Check ReleaseMCP availability or release source configuration."
     elif missing_sidecars or hint_text:
         recommended_action = "Review release artifact sidecars and Incubator naming/disclaimer hints."
 
     return {
-        "podlings_source": data["podlings_source"],
-        "health_source": data["health_source"],
-        "report_source": _report_source_meta(data),
-        "mail_source": _mail_source_meta(data),
         "generated_for": "release_artifact_evidence",
-        "podling": record.name,
+        "podling": podling,
         "release_source": {
             "source": evidence.get("source"),
             "dist_base": evidence.get("dist_base"),
@@ -1038,24 +1058,29 @@ def tool_release_artifact_evidence(arguments: dict[str, Any]) -> dict[str, Any]:
             "last_release_date": cadence.get("last_release_date"),
             "days_since_last_release": cadence.get("days_since_last_release"),
             "cadence": cadence.get("cadence"),
-            "health_release_metrics": _metric_snapshot(record.reporting_metrics, ["releases"])
-            or _metric_snapshot(record.preferred_metrics, ["releases"]),
         },
         "releases": releases,
         "missing_sidecars": missing_sidecars,
         "incubating_hints": incubating_hints,
-        "release_visibility_signals": release_signals,
         "summary": summary,
         "recommended_ipmc_action": recommended_action,
-        "explainability": _explainability(
-            record,
-            [
+        "explainability": {
+            "source_data_used": [
+                {
+                    "source": "apache-incubator-releases",
+                    "available": bool(evidence.get("available")),
+                    "release_count": release_count,
+                    "source_artifact_count": evidence.get("source_artifact_count", 0),
+                }
+            ],
+            "reasoning": [
                 summary,
                 "Release artifact evidence comes from ReleaseMCP dist/archive inspection.",
-                "Release visibility signals remain derived from apache-health/report data and are shown separately.",
+                "Use release_visibility when apache-health/report-derived release signals are needed.",
             ],
-            confidence=confidence_for_record(record),
-        ),
+            "confidence": "medium" if evidence.get("available") else "low",
+            "missing": [] if evidence.get("available") else ["ReleaseMCP artifact evidence is unavailable."],
+        },
     }
 
 
@@ -1305,6 +1330,13 @@ SEVERITIES_ORDER = {"low": 0, "medium": 1, "high": 2, "critical": 3}
 
 
 TOOLS: dict[str, dict[str, Any]] = {
+    "configure_sources": schemas.tool_definition(
+        description=(
+            "Set or inspect process-level source defaults so later IPMC tool calls can omit source override arguments."
+        ),
+        handler=tool_configure_sources,
+        properties=schemas.source_defaults_properties(),
+    ),
     "recent_changes": schemas.tool_definition(
         description=("Return per-podling recent deltas the IPMC should scan, excluding unchanged or static fields."),
         handler=tool_recent_changes,
@@ -1348,10 +1380,7 @@ TOOLS: dict[str, dict[str, Any]] = {
         required=["podling"],
     ),
     "release_artifact_evidence": schemas.tool_definition(
-        description=(
-            "Return ReleaseMCP artifact, sidecar, cadence, and Incubator naming evidence for one podling "
-            "alongside IPMC release visibility signals."
-        ),
+        description=("Return ReleaseMCP artifact, sidecar, cadence, and Incubator naming evidence for one podling."),
         handler=tool_release_artifact_evidence,
         properties=schemas.release_artifact_evidence_properties(),
         required=["podling"],

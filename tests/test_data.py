@@ -357,13 +357,26 @@ class DataTests(unittest.TestCase):
         self.assertEqual(evidence["source"], "apache-incubator-releases")
         self.assertEqual(evidence["release_count"], 1)
 
+    def test_load_podling_release_artifacts_defaults_to_one_level_scan(self) -> None:
+        module = mock.Mock()
+        module.release_overview.return_value = {
+            "podling": "Alpha",
+            "releases": [],
+        }
+
+        with mock.patch.object(data, "incubator_releases", module):
+            data.load_podling_release_artifacts("Alpha")
+
+        self.assertEqual(module.release_overview.call_args.kwargs["max_depth"], 1)
+
     def test_load_podling_release_artifacts_handles_missing_release_mcp(self) -> None:
         with mock.patch.object(data, "incubator_releases", None):
             evidence = data.load_podling_release_artifacts("Alpha")
 
         self.assertFalse(evidence["available"])
         self.assertEqual(evidence["release_count"], 0)
-        self.assertIn("apache-incubator-releases-mcp is not installed", evidence["reason"])
+        self.assertIn("not importable in the IPMC server environment", evidence["reason"])
+        self.assertIn("PYTHONPATH", evidence["reason"])
 
     def test_default_health_source_matches_health_mcp_default(self) -> None:
         self.assertEqual(data.DEFAULT_HEALTH_SOURCE, "reports")

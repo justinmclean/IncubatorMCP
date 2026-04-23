@@ -20,6 +20,28 @@ def assert_explainability(testcase: unittest.TestCase, payload: dict) -> None:
 
 
 class ToolTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._configured_sources = {
+            "podlings_source": tools.source_defaults()["configured"]["podlings_source"],
+            "health_source": tools.source_defaults()["configured"]["health_source"],
+            "report_source": tools.source_defaults()["configured"]["report_source"],
+            "mail_source": tools.source_defaults()["configured"]["mail_source"],
+            "mail_api_base": tools.source_defaults()["configured"]["mail_api_base"],
+            "release_dist_base": tools.source_defaults()["configured"]["release_dist_base"],
+            "release_archive_base": tools.source_defaults()["configured"]["release_archive_base"],
+        }
+
+    def tearDown(self) -> None:
+        from ipmc import data
+
+        data._CONFIGURED_PODLINGS_SOURCE = self._configured_sources["podlings_source"]
+        data._CONFIGURED_HEALTH_SOURCE = self._configured_sources["health_source"]
+        data._CONFIGURED_REPORT_SOURCE = self._configured_sources["report_source"]
+        data._CONFIGURED_MAIL_SOURCE = self._configured_sources["mail_source"]
+        data._CONFIGURED_MAIL_API_BASE = self._configured_sources["mail_api_base"]
+        data._CONFIGURED_RELEASE_DIST_BASE = self._configured_sources["release_dist_base"]
+        data._CONFIGURED_RELEASE_ARCHIVE_BASE = self._configured_sources["release_archive_base"]
+
     def test_validation_helpers_reject_bad_values(self) -> None:
         with self.assertRaises(ValueError):
             tools.require_string({"name": ""}, "name")
@@ -35,6 +57,24 @@ class ToolTests(unittest.TestCase):
             tools.optional_list_of_choices({"focus": [""]}, "focus", tools.FOCUS_AREAS)
         with self.assertRaises(ValueError):
             tools.optional_list_of_choices({"focus": ["missing"]}, "focus", tools.FOCUS_AREAS)
+
+    def test_configure_sources_sets_process_defaults_for_later_calls(self) -> None:
+        with make_fixture_sources() as (podlings_source, health_source):
+            configured = tools.tool_configure_sources(
+                {
+                    "podlings_source": podlings_source,
+                    "health_source": health_source,
+                    "mail_api_base": "https://example.test/api",
+                }
+            )
+            payload = tools.tool_ipmc_watchlist({"as_of_date": "2026-04-18"})
+
+        self.assertEqual(
+            configured["updated"],
+            ["health_source", "mail_api_base", "podlings_source"],
+        )
+        self.assertEqual(configured["source_defaults"]["effective"]["podlings_source"], podlings_source)
+        self.assertEqual(payload["items"][0]["podling"], "Charlie")
 
     def test_ipmc_watchlist_orders_highest_risk_first(self) -> None:
         with make_fixture_sources() as (podlings_source, health_source):
@@ -683,23 +723,7 @@ class ToolTests(unittest.TestCase):
         self.assertTrue(payload["release_visibility_signals"])
         assert_explainability(self, payload["explainability"])
 
-    def test_release_artifact_evidence_combines_release_mcp_with_visibility(self) -> None:
-        record = OversightRecord(
-            podling={"name": "Shipping", "status": "current", "mentors": ["A", "B"], "startdate": "2024-01-01"},
-            report_summary={"latest_metrics": {"3m": {"releases": 0}, "12m": {"releases": 0}}},
-            preferred_window="3m",
-            preferred_metrics={"commits": 30, "unique_committers": 4, "unique_authors": 5, "releases": 0},
-            reporting_window="12m",
-            reporting_metrics={"reports_count": 1, "avg_mentor_signoffs": 2.0},
-            as_of_date="2026-04-18",
-        )
-        data = {
-            "records": [record],
-            "podlings_source": {"source": "podlings.xml"},
-            "health_source": {"reports_dir": "reports"},
-            "report_source": {"source": "reports", "available": True},
-            "mail_source": {"source": "mail", "available": True},
-        }
+    def test_release_artifact_evidence_uses_release_mcp_directly(self) -> None:
         evidence = {
             "source": "apache-incubator-releases",
             "dist_base": "/tmp/dist",
@@ -724,7 +748,7 @@ class ToolTests(unittest.TestCase):
             ],
             "incubating_hints": {"hints": []},
         }
-        with mock.patch.object(tools, "build_records", return_value=data):
+        with mock.patch.object(tools, "build_records") as build:
             with mock.patch.object(tools, "load_podling_release_artifacts", return_value=evidence) as load_artifacts:
                 payload = tools.tool_release_artifact_evidence(
                     {
@@ -735,6 +759,7 @@ class ToolTests(unittest.TestCase):
                     }
                 )
 
+        build.assert_not_called()
         load_artifacts.assert_called_once_with(
             "Shipping",
             release_dist_base="/tmp/dist",
@@ -748,8 +773,26 @@ class ToolTests(unittest.TestCase):
             payload["missing_sidecars"],
             [{"artifact": "apache-shipping-1.0.0-incubating-source-release.zip", "missing": "signature"}],
         )
-        self.assertTrue(payload["release_visibility_signals"])
-        assert_explainability(self, payload["explainability"])
+        self.assertTrue(payload["explainability"]["source_data_used"])
+        self.assertTrue(payload["explainability"]["reasoning"])
+        self.assertEqual(payload["explainability"]["confidence"], "medium")
+
+    def test_release_artifact_evidence_defaults_to_one_level_release_scan(self) -> None:
+        evidence = {
+            "source": "apache-incubator-releases",
+            "available": True,
+            "release_count": 0,
+            "source_artifact_count": 0,
+            "signature_count": 0,
+            "checksum_count": 0,
+            "releases": [],
+        }
+        with mock.patch.object(tools, "build_records") as build:
+            with mock.patch.object(tools, "load_podling_release_artifacts", return_value=evidence) as load_artifacts:
+                tools.tool_release_artifact_evidence({"podling": "Shipping"})
+
+        build.assert_not_called()
+        self.assertEqual(load_artifacts.call_args.kwargs["max_depth"], 1)
 
     def test_reporting_cohort_groups_current_reporting_podlings_without_ranking(self) -> None:
         reporting_issue = OversightRecord(
