@@ -25,14 +25,19 @@ except ImportError:  # pragma: no cover - exercised when optional source package
 DEFAULT_HEALTH_SOURCE = "reports"
 DEFAULT_REPORT_SOURCE = ".cache/incubator-reports"
 DEFAULT_MAIL_SOURCE = ".cache/incubator-general-mail"
+DEFAULT_MAIL_API_BASE = "https://lists.apache.org/api"
+DEFAULT_MAIL_SEARCH_TIMESPAN = "lte=12M"
+DEFAULT_MAIL_QUERY_LIMIT = 20
 PODLINGS_SOURCE_ENV = "IPMC_PODLINGS_SOURCE"
 HEALTH_SOURCE_ENV = "IPMC_HEALTH_SOURCE"
 REPORT_SOURCE_ENV = "IPMC_REPORT_SOURCE"
 MAIL_SOURCE_ENV = "IPMC_MAIL_SOURCE"
+MAIL_API_BASE_ENV = "IPMC_MAIL_API_BASE"
 _CONFIGURED_PODLINGS_SOURCE: str | None = None
 _CONFIGURED_HEALTH_SOURCE: str | None = None
 _CONFIGURED_REPORT_SOURCE: str | None = None
 _CONFIGURED_MAIL_SOURCE: str | None = None
+_CONFIGURED_MAIL_API_BASE: str | None = None
 
 PREFERRED_WINDOW_ORDER = ("3m", "6m", "12m", "to-date")
 REPORTING_WINDOW_ORDER = ("12m", "6m", "to-date", "3m")
@@ -55,8 +60,10 @@ def configure_defaults(
     reports_source: str | None = None,
     mail_source: str | None = None,
     mail_cache_dir: str | None = None,
+    mail_api_base: str | None = None,
 ) -> None:
-    global _CONFIGURED_HEALTH_SOURCE, _CONFIGURED_MAIL_SOURCE, _CONFIGURED_PODLINGS_SOURCE, _CONFIGURED_REPORT_SOURCE
+    global _CONFIGURED_HEALTH_SOURCE, _CONFIGURED_MAIL_API_BASE, _CONFIGURED_MAIL_SOURCE, _CONFIGURED_PODLINGS_SOURCE
+    global _CONFIGURED_REPORT_SOURCE
 
     resolved_podlings_source = podlings_source or podlings_repo
     resolved_health_source = health_source or health_repo
@@ -70,6 +77,8 @@ def configure_defaults(
         _CONFIGURED_REPORT_SOURCE = resolved_report_source
     if resolved_mail_source:
         _CONFIGURED_MAIL_SOURCE = resolved_mail_source
+    if mail_api_base:
+        _CONFIGURED_MAIL_API_BASE = mail_api_base
 
 
 def _env_default(name: str) -> str | None:
@@ -259,6 +268,10 @@ def _resolved_mail_source(mail_source: str | None = None) -> tuple[str, bool]:
     return explicit or DEFAULT_MAIL_SOURCE, explicit is not None
 
 
+def _resolved_mail_api_base(mail_api_base: str | None = None) -> str:
+    return mail_api_base or _CONFIGURED_MAIL_API_BASE or _env_default(MAIL_API_BASE_ENV) or DEFAULT_MAIL_API_BASE
+
+
 def load_incubator_reports(report_source: str | None = None) -> tuple[dict[str, list[dict[str, Any]]], dict[str, Any]]:
     reports_dir, explicit = _resolved_report_source(report_source)
     if incubator_report_parser is None:
@@ -322,38 +335,100 @@ def _mail_matches_podling(message: dict[str, Any], podling_name: str) -> bool:
     return needle in haystack
 
 
+def _mail_unavailable_meta(source: str, reason: str, *, api_base: str | None = None) -> dict[str, Any]:
+    meta: dict[str, Any] = {
+        "source": source,
+        "cache_dir": source,
+        "message_count": 0,
+        "podling_count": 0,
+        "available": False,
+        "reason": reason,
+    }
+    if api_base:
+        meta["api_base"] = api_base
+    return meta
+
+
+def _load_live_incubator_general_mail(
+    podlings: list[dict[str, Any]] | None,
+    *,
+    api_base: str,
+    timespan: str = DEFAULT_MAIL_SEARCH_TIMESPAN,
+    limit: int = DEFAULT_MAIL_QUERY_LIMIT,
+) -> tuple[dict[str, list[dict[str, Any]]], dict[str, Any]]:
+    fetcher = getattr(incubator_mail_client, "fetch_mail_stats", None)
+    if fetcher is None:
+        return (
+            {},
+            _mail_unavailable_meta(
+                api_base,
+                "Installed MailMCP does not provide fetch_mail_stats for live general-list search.",
+                api_base=api_base,
+            ),
+        )
+
+    by_podling: dict[str, list[dict[str, Any]]] = {}
+    message_count = 0
+    for podling in podlings or []:
+        podling_name = str(podling.get("name", ""))
+        if not podling_name:
+            continue
+        result = fetcher(
+            api_base=api_base,
+            timespan=timespan,
+            query=podling_name,
+            limit=limit,
+        )
+        messages = [message for message in result.get("emails", []) if _mail_matches_podling(message, podling_name)]
+        if messages:
+            by_podling[podling_name.casefold()] = messages
+            message_count += len(messages)
+
+    return (
+        by_podling,
+        {
+            "source": api_base,
+            "cache_dir": None,
+            "api_base": api_base,
+            "timespan": timespan,
+            "mode": "live",
+            "message_count": message_count,
+            "podling_count": len(by_podling),
+            "available": True,
+        },
+    )
+
+
 def load_incubator_general_mail(
     mail_source: str | None = None,
     podlings: list[dict[str, Any]] | None = None,
+    *,
+    mail_api_base: str | None = None,
 ) -> tuple[dict[str, list[dict[str, Any]]], dict[str, Any]]:
     cache_dir, explicit = _resolved_mail_source(mail_source)
+    api_base = _resolved_mail_api_base(mail_api_base)
     if incubator_mail_client is None:
         return (
             {},
-            {
-                "source": cache_dir,
-                "cache_dir": cache_dir,
-                "message_count": 0,
-                "podling_count": 0,
-                "available": False,
-                "reason": "apache-incubator-mail-mcp is not installed.",
-            },
+            _mail_unavailable_meta(cache_dir, "apache-incubator-mail-mcp is not installed.", api_base=api_base),
         )
 
     if not Path(cache_dir).expanduser().exists():
         if explicit:
             raise FileNotFoundError(f"MailMCP source path does not exist: {cache_dir}")
-        return (
-            {},
-            {
-                "source": cache_dir,
-                "cache_dir": cache_dir,
-                "message_count": 0,
-                "podling_count": 0,
-                "available": False,
-                "reason": "Default MailMCP cache directory does not exist.",
-            },
-        )
+        try:
+            live_mail, live_meta = _load_live_incubator_general_mail(podlings, api_base=api_base)
+        except Exception as exc:
+            return (
+                {},
+                _mail_unavailable_meta(
+                    api_base,
+                    f"Default MailMCP cache directory does not exist and live MailMCP search failed: {exc}",
+                    api_base=api_base,
+                ),
+            )
+        live_meta["fallback_reason"] = "Default MailMCP cache directory does not exist."
+        return live_mail, live_meta
 
     cached = incubator_mail_client.load_cached_mail(cache_dir=cache_dir)
     messages = cached.get("emails") or []
@@ -373,19 +448,65 @@ def load_incubator_general_mail(
     return by_podling, meta
 
 
+def load_podling_release_vote_history(
+    podling: str,
+    *,
+    mail_api_base: str | None = None,
+    timespan: str | None = None,
+    limit: int = 20,
+) -> dict[str, Any]:
+    api_base = _resolved_mail_api_base(mail_api_base)
+    resolved_timespan = timespan or DEFAULT_MAIL_SEARCH_TIMESPAN
+    unavailable = {
+        "podling": podling,
+        "source": "apache-incubator-mail",
+        "api_base": api_base,
+        "timespan": resolved_timespan,
+        "available": False,
+        "vote_count": 0,
+        "result_count": 0,
+        "votes": [],
+        "results": [],
+    }
+    if incubator_mail_client is None:
+        return unavailable | {"reason": "apache-incubator-mail-mcp is not installed."}
+
+    history_loader = getattr(incubator_mail_client, "podling_release_vote_history", None)
+    if history_loader is None:
+        return unavailable | {"reason": "Installed MailMCP does not provide podling_release_vote_history."}
+
+    history = history_loader(
+        podling=podling,
+        api_base=api_base,
+        timespan=resolved_timespan,
+        limit=limit,
+    )
+    history.setdefault("podling", podling)
+    history.setdefault("timespan", resolved_timespan)
+    history["source"] = "apache-incubator-mail"
+    history["api_base"] = api_base
+    history["available"] = True
+    history.setdefault("vote_count", len(history.get("votes") or []))
+    history.setdefault("result_count", len(history.get("results") or []))
+    history.setdefault("votes", [])
+    history.setdefault("results", [])
+    return history
+
+
 def build_records(
     *,
     podlings_source: str | None = None,
     health_source: str | None = None,
     report_source: str | None = None,
     mail_source: str | None = None,
+    mail_api_base: str | None = None,
     as_of_date: str | None = None,
     include_non_current: bool = False,
 ) -> dict[str, Any]:
     podlings, podlings_meta = load_podlings(podlings_source)
     summaries, health_meta = load_health_summaries(health_source)
     report_entries, report_meta = load_incubator_reports(report_source)
-    mail_entries, mail_meta = load_incubator_general_mail(mail_source, podlings)
+    mail_entries, mail_meta = load_incubator_general_mail(mail_source, podlings, mail_api_base=mail_api_base)
 
     records: list[OversightRecord] = []
     for podling in podlings:

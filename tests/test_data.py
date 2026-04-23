@@ -238,6 +238,94 @@ class DataTests(unittest.TestCase):
         module.load_cached_mail.assert_called_once_with(cache_dir="/tmp/mail-cache")
         self.assertEqual(meta["source"], "/tmp/mail-cache")
 
+    def test_load_incubator_general_mail_falls_back_to_live_search_without_default_cache(self) -> None:
+        module = mock.Mock()
+        module.fetch_mail_stats.side_effect = [
+            {
+                "emails": [
+                    {
+                        "id": "alpha-message",
+                        "subject": "[DISCUSS] Alpha graduation",
+                        "from": "Mentor <mentor@apache.org>",
+                        "date": "2026-04-20 00:00:00 UTC",
+                    }
+                ]
+            },
+            {"emails": []},
+        ]
+
+        with mock.patch.object(data.Path, "exists", return_value=False):
+            with mock.patch.object(data, "incubator_mail_client", module):
+                mail, meta = data.load_incubator_general_mail(
+                    podlings=[{"name": "Alpha"}, {"name": "Bravo"}],
+                    mail_api_base="https://example.test/api",
+                )
+
+        self.assertEqual(module.fetch_mail_stats.call_count, 2)
+        module.fetch_mail_stats.assert_any_call(
+            api_base="https://example.test/api",
+            timespan=data.DEFAULT_MAIL_SEARCH_TIMESPAN,
+            query="Alpha",
+            limit=data.DEFAULT_MAIL_QUERY_LIMIT,
+        )
+        self.assertEqual(meta["mode"], "live")
+        self.assertEqual(meta["source"], "https://example.test/api")
+        self.assertTrue(meta["available"])
+        self.assertEqual(meta["message_count"], 1)
+        self.assertEqual(mail["alpha"][0]["id"], "alpha-message")
+        self.assertNotIn("bravo", mail)
+
+    def test_load_incubator_general_mail_reports_live_fallback_failure(self) -> None:
+        module = mock.Mock()
+        module.fetch_mail_stats.side_effect = RuntimeError("network unavailable")
+
+        with mock.patch.object(data.Path, "exists", return_value=False):
+            with mock.patch.object(data, "incubator_mail_client", module):
+                mail, meta = data.load_incubator_general_mail(podlings=[{"name": "Alpha"}])
+
+        self.assertEqual(mail, {})
+        self.assertFalse(meta["available"])
+        self.assertIn("live MailMCP search failed", meta["reason"])
+
+    def test_load_podling_release_vote_history_uses_mail_mcp(self) -> None:
+        module = mock.Mock()
+        module.podling_release_vote_history.return_value = {
+            "podling": "Alpha",
+            "timespan": "lte=6M",
+            "vote_count": 1,
+            "result_count": 1,
+            "votes": [{"thread_id": "vote-thread"}],
+            "results": [{"thread_id": "result-thread"}],
+        }
+
+        with mock.patch.object(data, "incubator_mail_client", module):
+            history = data.load_podling_release_vote_history(
+                "Alpha",
+                mail_api_base="https://example.test/api",
+                timespan="lte=6M",
+                limit=5,
+            )
+
+        module.podling_release_vote_history.assert_called_once_with(
+            podling="Alpha",
+            api_base="https://example.test/api",
+            timespan="lte=6M",
+            limit=5,
+        )
+        self.assertTrue(history["available"])
+        self.assertEqual(history["api_base"], "https://example.test/api")
+        self.assertEqual(history["vote_count"], 1)
+
+    def test_load_podling_release_vote_history_handles_old_mail_mcp(self) -> None:
+        module = mock.Mock(spec=[])
+
+        with mock.patch.object(data, "incubator_mail_client", module):
+            history = data.load_podling_release_vote_history("Alpha")
+
+        self.assertFalse(history["available"])
+        self.assertEqual(history["vote_count"], 0)
+        self.assertIn("podling_release_vote_history", history["reason"])
+
     def test_default_health_source_matches_health_mcp_default(self) -> None:
         self.assertEqual(data.DEFAULT_HEALTH_SOURCE, "reports")
 

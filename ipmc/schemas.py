@@ -18,6 +18,14 @@ MAIL_SOURCE_PROPERTY = {
     "type": "string",
     "description": "Optional local path for MailMCP cached ASF Incubator general-list message files",
 }
+MAIL_API_BASE_PROPERTY = {
+    "type": "string",
+    "description": "Optional MailMCP/Pony Mail API base URL for live Incubator general-list release evidence",
+}
+MAIL_TIMESPAN_PROPERTY = {
+    "type": "string",
+    "description": "Optional MailMCP timespan expression for live Incubator general-list release evidence",
+}
 AS_OF_DATE_PROPERTY = {
     "type": "string",
     "description": "Optional YYYY-MM-DD date to evaluate data as of a specific day",
@@ -77,6 +85,7 @@ def base_properties() -> dict[str, Any]:
         "health_source": HEALTH_SOURCE_PROPERTY,
         "report_source": REPORT_SOURCE_PROPERTY,
         "mail_source": MAIL_SOURCE_PROPERTY,
+        "mail_api_base": MAIL_API_BASE_PROPERTY,
         "as_of_date": AS_OF_DATE_PROPERTY,
     }
 
@@ -186,6 +195,16 @@ def release_visibility_properties() -> dict[str, Any]:
                 ],
             },
         },
+    }
+
+
+def release_vote_evidence_properties() -> dict[str, Any]:
+    return {
+        **base_properties(),
+        "mail_api_base": MAIL_API_BASE_PROPERTY,
+        "mail_timespan": MAIL_TIMESPAN_PROPERTY,
+        "podling": PODLING_PROPERTY,
+        "limit": LIMIT_PROPERTY,
     }
 
 

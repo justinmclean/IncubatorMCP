@@ -17,7 +17,7 @@ from .analysis import (
     significant_change_events,
     stalled_podling_signal,
 )
-from .data import build_records
+from .data import build_records, load_podling_release_vote_history
 
 SEVERITIES = {"low", "medium", "high", "critical"}
 BRIEF_FORMATS = {"summary", "detailed"}
@@ -140,6 +140,7 @@ def _resolve_sources(arguments: dict[str, Any]) -> dict[str, Any]:
         "health_source": optional_string(arguments, "health_source"),
         "report_source": optional_string(arguments, "report_source"),
         "mail_source": optional_string(arguments, "mail_source"),
+        "mail_api_base": optional_string(arguments, "mail_api_base"),
         "as_of_date": optional_string(arguments, "as_of_date"),
     }
 
@@ -896,6 +897,74 @@ def tool_release_visibility(arguments: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def tool_release_vote_evidence(arguments: dict[str, Any]) -> dict[str, Any]:
+    sources = _resolve_sources(arguments)
+    podling = require_string(arguments, "podling")
+    mail_api_base = optional_string(arguments, "mail_api_base")
+    mail_timespan = optional_string(arguments, "mail_timespan")
+    limit = optional_integer(arguments, "limit") or 20
+
+    data = build_records(**sources)
+    record = _record_by_name(data["records"], podling)
+    history = load_podling_release_vote_history(
+        record.name,
+        mail_api_base=mail_api_base,
+        timespan=mail_timespan,
+        limit=limit,
+    )
+    votes = history.get("votes") or []
+    results = history.get("results") or []
+    release_signals = release_visibility_signals(record)
+    has_results = bool(results)
+    summary = (
+        f"MailMCP found {len(votes)} likely Incubator release vote thread(s) and "
+        f"{len(results)} likely result thread(s) for {record.name}."
+    )
+    recommended_action = (
+        "Compare the likely vote/result threads with release entries in reports and health metrics."
+        if has_results
+        else "Verify whether release votes reached general@incubator.apache.org and whether results were posted."
+    )
+
+    return {
+        "podlings_source": data["podlings_source"],
+        "health_source": data["health_source"],
+        "report_source": _report_source_meta(data),
+        "mail_source": _mail_source_meta(data),
+        "generated_for": "release_vote_evidence",
+        "podling": record.name,
+        "mail_history_source": {
+            "source": history.get("source"),
+            "api_base": history.get("api_base"),
+            "timespan": history.get("timespan"),
+            "available": history.get("available"),
+            "reason": history.get("reason"),
+            "sources": history.get("sources"),
+        },
+        "observed": {
+            "vote_count": history.get("vote_count", len(votes)),
+            "result_count": history.get("result_count", len(results)),
+            "cached_general_mail_matches": len(record.incubator_general_mail),
+            "health_release_metrics": _metric_snapshot(record.reporting_metrics, ["releases"])
+            or _metric_snapshot(record.preferred_metrics, ["releases"]),
+        },
+        "votes": votes,
+        "results": results,
+        "release_visibility_signals": release_signals,
+        "summary": summary,
+        "recommended_ipmc_action": recommended_action,
+        "explainability": _explainability(
+            record,
+            [
+                summary,
+                "Vote and result threads come from MailMCP live general@incubator.apache.org release-thread search.",
+                "Release visibility signals remain derived from apache-health/report data and are shown separately.",
+            ],
+            confidence=confidence_for_record(record),
+        ),
+    }
+
+
 def _cohort_bucket_item(record: Any, signals: list[dict[str, Any]], summary_key: str) -> dict[str, Any]:
     return {
         "podling": record.name,
@@ -1174,6 +1243,15 @@ TOOLS: dict[str, dict[str, Any]] = {
         ),
         handler=tool_release_visibility,
         properties=schemas.release_visibility_properties(),
+    ),
+    "release_vote_evidence": schemas.tool_definition(
+        description=(
+            "Return MailMCP release vote/result thread evidence for one podling alongside "
+            "IPMC release visibility signals."
+        ),
+        handler=tool_release_vote_evidence,
+        properties=schemas.release_vote_evidence_properties(),
+        required=["podling"],
     ),
     "reporting_cohort": schemas.tool_definition(
         description=(

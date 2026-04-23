@@ -631,6 +631,58 @@ class ToolTests(unittest.TestCase):
         self.assertIn("contributors_no_releases", signals)
         assert_explainability(self, payload["items"][0]["explainability"])
 
+    def test_release_vote_evidence_combines_mail_history_with_visibility(self) -> None:
+        record = OversightRecord(
+            podling={"name": "Shipping", "status": "current", "mentors": ["A", "B"], "startdate": "2024-01-01"},
+            report_summary={"latest_metrics": {"3m": {"releases": 0}, "12m": {"releases": 0}}},
+            preferred_window="3m",
+            preferred_metrics={"commits": 30, "unique_committers": 4, "unique_authors": 5, "releases": 0},
+            reporting_window="12m",
+            reporting_metrics={"reports_count": 1, "avg_mentor_signoffs": 2.0},
+            as_of_date="2026-04-18",
+            incubator_general_mail=[{"id": "cached-message"}],
+        )
+        data = {
+            "records": [record],
+            "podlings_source": {"source": "podlings.xml"},
+            "health_source": {"reports_dir": "reports"},
+            "report_source": {"source": "reports", "available": True},
+            "mail_source": {"source": "mail", "available": True},
+        }
+        history = {
+            "source": "apache-incubator-mail",
+            "api_base": "https://example.test/api",
+            "timespan": "lte=6M",
+            "available": True,
+            "vote_count": 1,
+            "result_count": 1,
+            "votes": [{"thread_id": "vote-thread"}],
+            "results": [{"thread_id": "result-thread"}],
+        }
+        with mock.patch.object(tools, "build_records", return_value=data):
+            with mock.patch.object(tools, "load_podling_release_vote_history", return_value=history) as load_history:
+                payload = tools.tool_release_vote_evidence(
+                    {
+                        "podling": "Shipping",
+                        "mail_api_base": "https://example.test/api",
+                        "mail_timespan": "lte=6M",
+                        "limit": 5,
+                    }
+                )
+
+        load_history.assert_called_once_with(
+            "Shipping",
+            mail_api_base="https://example.test/api",
+            timespan="lte=6M",
+            limit=5,
+        )
+        self.assertEqual(payload["generated_for"], "release_vote_evidence")
+        self.assertEqual(payload["observed"]["vote_count"], 1)
+        self.assertEqual(payload["observed"]["result_count"], 1)
+        self.assertEqual(payload["observed"]["cached_general_mail_matches"], 1)
+        self.assertTrue(payload["release_visibility_signals"])
+        assert_explainability(self, payload["explainability"])
+
     def test_reporting_cohort_groups_current_reporting_podlings_without_ranking(self) -> None:
         reporting_issue = OversightRecord(
             podling={"name": "B-Report", "status": "current", "mentors": ["A", "B"], "startdate": "2024-01-01"},

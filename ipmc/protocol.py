@@ -221,6 +221,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--health-source", help="Path to apache-health report Markdown files")
     parser.add_argument("--report-source", help="Path to ReportMCP cached ASF Incubator report files")
     parser.add_argument("--mail-source", help="Path to MailMCP cached ASF Incubator general-list message files")
+    parser.add_argument("--mail-api-base", help="MailMCP/Pony Mail API base URL for live Incubator general-list search")
     return parser.parse_args(argv)
 
 
@@ -231,6 +232,7 @@ def main(argv: list[str] | None = None) -> int:
         health_source=args.health_source,
         report_source=args.report_source,
         mail_source=args.mail_source,
+        mail_api_base=args.mail_api_base,
     )
 
     for raw_line in sys.stdin:
