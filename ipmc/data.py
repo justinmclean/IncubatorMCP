@@ -22,22 +22,33 @@ try:
 except ImportError:  # pragma: no cover - exercised when optional source package is absent locally
     incubator_mail_client = None  # type: ignore[assignment]
 
+try:
+    from apache_incubator_releases_mcp import releases as incubator_releases  # type: ignore[import-not-found]
+except ImportError:  # pragma: no cover - exercised when optional source package is absent locally
+    incubator_releases = None  # type: ignore[assignment]
+
 DEFAULT_HEALTH_SOURCE = "reports"
 DEFAULT_REPORT_SOURCE = ".cache/incubator-reports"
 DEFAULT_MAIL_SOURCE = ".cache/incubator-general-mail"
 DEFAULT_MAIL_API_BASE = "https://lists.apache.org/api"
 DEFAULT_MAIL_SEARCH_TIMESPAN = "lte=12M"
 DEFAULT_MAIL_QUERY_LIMIT = 20
+DEFAULT_RELEASE_DIST_BASE = "https://dist.apache.org/repos/dist/release/incubator"
+DEFAULT_RELEASE_ARCHIVE_BASE = "https://archive.apache.org/dist/incubator"
 PODLINGS_SOURCE_ENV = "IPMC_PODLINGS_SOURCE"
 HEALTH_SOURCE_ENV = "IPMC_HEALTH_SOURCE"
 REPORT_SOURCE_ENV = "IPMC_REPORT_SOURCE"
 MAIL_SOURCE_ENV = "IPMC_MAIL_SOURCE"
 MAIL_API_BASE_ENV = "IPMC_MAIL_API_BASE"
+RELEASE_DIST_BASE_ENV = "IPMC_RELEASE_DIST_BASE"
+RELEASE_ARCHIVE_BASE_ENV = "IPMC_RELEASE_ARCHIVE_BASE"
 _CONFIGURED_PODLINGS_SOURCE: str | None = None
 _CONFIGURED_HEALTH_SOURCE: str | None = None
 _CONFIGURED_REPORT_SOURCE: str | None = None
 _CONFIGURED_MAIL_SOURCE: str | None = None
 _CONFIGURED_MAIL_API_BASE: str | None = None
+_CONFIGURED_RELEASE_DIST_BASE: str | None = None
+_CONFIGURED_RELEASE_ARCHIVE_BASE: str | None = None
 
 PREFERRED_WINDOW_ORDER = ("3m", "6m", "12m", "to-date")
 REPORTING_WINDOW_ORDER = ("12m", "6m", "to-date", "3m")
@@ -61,8 +72,11 @@ def configure_defaults(
     mail_source: str | None = None,
     mail_cache_dir: str | None = None,
     mail_api_base: str | None = None,
+    release_dist_base: str | None = None,
+    release_archive_base: str | None = None,
 ) -> None:
     global _CONFIGURED_HEALTH_SOURCE, _CONFIGURED_MAIL_API_BASE, _CONFIGURED_MAIL_SOURCE, _CONFIGURED_PODLINGS_SOURCE
+    global _CONFIGURED_RELEASE_ARCHIVE_BASE, _CONFIGURED_RELEASE_DIST_BASE
     global _CONFIGURED_REPORT_SOURCE
 
     resolved_podlings_source = podlings_source or podlings_repo
@@ -79,6 +93,10 @@ def configure_defaults(
         _CONFIGURED_MAIL_SOURCE = resolved_mail_source
     if mail_api_base:
         _CONFIGURED_MAIL_API_BASE = mail_api_base
+    if release_dist_base:
+        _CONFIGURED_RELEASE_DIST_BASE = release_dist_base
+    if release_archive_base:
+        _CONFIGURED_RELEASE_ARCHIVE_BASE = release_archive_base
 
 
 def _env_default(name: str) -> str | None:
@@ -270,6 +288,24 @@ def _resolved_mail_source(mail_source: str | None = None) -> tuple[str, bool]:
 
 def _resolved_mail_api_base(mail_api_base: str | None = None) -> str:
     return mail_api_base or _CONFIGURED_MAIL_API_BASE or _env_default(MAIL_API_BASE_ENV) or DEFAULT_MAIL_API_BASE
+
+
+def _resolved_release_dist_base(release_dist_base: str | None = None) -> str:
+    return (
+        release_dist_base
+        or _CONFIGURED_RELEASE_DIST_BASE
+        or _env_default(RELEASE_DIST_BASE_ENV)
+        or DEFAULT_RELEASE_DIST_BASE
+    )
+
+
+def _resolved_release_archive_base(release_archive_base: str | None = None) -> str:
+    return (
+        release_archive_base
+        or _CONFIGURED_RELEASE_ARCHIVE_BASE
+        or _env_default(RELEASE_ARCHIVE_BASE_ENV)
+        or DEFAULT_RELEASE_ARCHIVE_BASE
+    )
 
 
 def load_incubator_reports(report_source: str | None = None) -> tuple[dict[str, list[dict[str, Any]]], dict[str, Any]]:
@@ -491,6 +527,52 @@ def load_podling_release_vote_history(
     history.setdefault("votes", [])
     history.setdefault("results", [])
     return history
+
+
+def load_podling_release_artifacts(
+    podling: str,
+    *,
+    release_dist_base: str | None = None,
+    release_archive_base: str | None = None,
+    max_depth: int = 1,
+) -> dict[str, Any]:
+    dist_base = _resolved_release_dist_base(release_dist_base)
+    archive_base = _resolved_release_archive_base(release_archive_base)
+    unavailable = {
+        "podling": podling,
+        "source": "apache-incubator-releases",
+        "dist_base": dist_base,
+        "archive_base": archive_base,
+        "available": False,
+        "release_count": 0,
+        "source_artifact_count": 0,
+        "signature_count": 0,
+        "checksum_count": 0,
+        "releases": [],
+    }
+    if incubator_releases is None:
+        return unavailable | {"reason": "apache-incubator-releases-mcp is not installed."}
+
+    try:
+        evidence = incubator_releases.release_overview(
+            podling,
+            dist_base=dist_base,
+            archive_base=archive_base,
+            max_depth=max_depth,
+        )
+    except Exception as exc:
+        return unavailable | {"reason": f"ReleaseMCP release overview failed: {exc}"}
+
+    evidence["source"] = "apache-incubator-releases"
+    evidence["dist_base"] = dist_base
+    evidence["archive_base"] = archive_base
+    evidence["available"] = True
+    evidence.setdefault("release_count", len(evidence.get("releases") or []))
+    evidence.setdefault("source_artifact_count", 0)
+    evidence.setdefault("signature_count", 0)
+    evidence.setdefault("checksum_count", 0)
+    evidence.setdefault("releases", [])
+    return evidence
 
 
 def build_records(

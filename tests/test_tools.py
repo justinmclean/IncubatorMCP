@@ -683,6 +683,74 @@ class ToolTests(unittest.TestCase):
         self.assertTrue(payload["release_visibility_signals"])
         assert_explainability(self, payload["explainability"])
 
+    def test_release_artifact_evidence_combines_release_mcp_with_visibility(self) -> None:
+        record = OversightRecord(
+            podling={"name": "Shipping", "status": "current", "mentors": ["A", "B"], "startdate": "2024-01-01"},
+            report_summary={"latest_metrics": {"3m": {"releases": 0}, "12m": {"releases": 0}}},
+            preferred_window="3m",
+            preferred_metrics={"commits": 30, "unique_committers": 4, "unique_authors": 5, "releases": 0},
+            reporting_window="12m",
+            reporting_metrics={"reports_count": 1, "avg_mentor_signoffs": 2.0},
+            as_of_date="2026-04-18",
+        )
+        data = {
+            "records": [record],
+            "podlings_source": {"source": "podlings.xml"},
+            "health_source": {"reports_dir": "reports"},
+            "report_source": {"source": "reports", "available": True},
+            "mail_source": {"source": "mail", "available": True},
+        }
+        evidence = {
+            "source": "apache-incubator-releases",
+            "dist_base": "/tmp/dist",
+            "archive_base": "/tmp/archive",
+            "available": True,
+            "release_count": 1,
+            "source_artifact_count": 1,
+            "signature_count": 0,
+            "checksum_count": 1,
+            "cadence": {"last_release_date": "2026-04-01", "days_since_last_release": 17, "cadence": "quarterly-ish"},
+            "releases": [
+                {
+                    "version": "1.0.0",
+                    "source_artifacts": [
+                        {
+                            "name": "apache-shipping-1.0.0-incubating-source-release.zip",
+                            "signatures": [],
+                            "checksums": [{"name": "apache-shipping-1.0.0-incubating-source-release.zip.sha512"}],
+                        }
+                    ],
+                }
+            ],
+            "incubating_hints": {"hints": []},
+        }
+        with mock.patch.object(tools, "build_records", return_value=data):
+            with mock.patch.object(tools, "load_podling_release_artifacts", return_value=evidence) as load_artifacts:
+                payload = tools.tool_release_artifact_evidence(
+                    {
+                        "podling": "Shipping",
+                        "release_dist_base": "/tmp/dist",
+                        "release_archive_base": "/tmp/archive",
+                        "release_max_depth": 0,
+                    }
+                )
+
+        load_artifacts.assert_called_once_with(
+            "Shipping",
+            release_dist_base="/tmp/dist",
+            release_archive_base="/tmp/archive",
+            max_depth=0,
+        )
+        self.assertEqual(payload["generated_for"], "release_artifact_evidence")
+        self.assertEqual(payload["observed"]["release_count"], 1)
+        self.assertEqual(payload["observed"]["last_release_date"], "2026-04-01")
+        self.assertEqual(
+            payload["missing_sidecars"],
+            [{"artifact": "apache-shipping-1.0.0-incubating-source-release.zip", "missing": "signature"}],
+        )
+        self.assertTrue(payload["release_visibility_signals"])
+        assert_explainability(self, payload["explainability"])
+
     def test_reporting_cohort_groups_current_reporting_podlings_without_ranking(self) -> None:
         reporting_issue = OversightRecord(
             podling={"name": "B-Report", "status": "current", "mentors": ["A", "B"], "startdate": "2024-01-01"},

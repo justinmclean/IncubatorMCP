@@ -28,6 +28,7 @@ class ProtocolTests(unittest.TestCase):
                 "reporting_reliability",
                 "release_visibility",
                 "release_vote_evidence",
+                "release_artifact_evidence",
                 "reporting_cohort",
                 "stalled_podlings",
                 "ipmc_watchlist",
@@ -89,6 +90,10 @@ class ProtocolTests(unittest.TestCase):
                 "/tmp/mail-cache",
                 "--mail-api-base",
                 "https://example.test/api",
+                "--release-dist-base",
+                "/tmp/dist",
+                "--release-archive-base",
+                "/tmp/archive",
             ]
         )
 
@@ -97,6 +102,8 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(args.report_source, "/tmp/report-cache")
         self.assertEqual(args.mail_source, "/tmp/mail-cache")
         self.assertEqual(args.mail_api_base, "https://example.test/api")
+        self.assertEqual(args.release_dist_base, "/tmp/dist")
+        self.assertEqual(args.release_archive_base, "/tmp/archive")
 
     def test_call_tool_success(self) -> None:
         with make_fixture_sources() as (podlings_source, health_source):
@@ -273,6 +280,10 @@ class ProtocolTests(unittest.TestCase):
                         "/tmp/mail-cache",
                         "--mail-api-base",
                         "https://example.test/api",
+                        "--release-dist-base",
+                        "/tmp/dist",
+                        "--release-archive-base",
+                        "/tmp/archive",
                     ]
                 )
 
@@ -283,4 +294,6 @@ class ProtocolTests(unittest.TestCase):
             report_source="/tmp/report-cache",
             mail_source="/tmp/mail-cache",
             mail_api_base="https://example.test/api",
+            release_dist_base="/tmp/dist",
+            release_archive_base="/tmp/archive",
         )

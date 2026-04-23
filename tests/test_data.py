@@ -326,6 +326,45 @@ class DataTests(unittest.TestCase):
         self.assertEqual(history["vote_count"], 0)
         self.assertIn("podling_release_vote_history", history["reason"])
 
+    def test_load_podling_release_artifacts_uses_release_mcp(self) -> None:
+        module = mock.Mock()
+        module.release_overview.return_value = {
+            "podling": "Alpha",
+            "podling_slug": "alpha",
+            "release_count": 1,
+            "source_artifact_count": 1,
+            "signature_count": 1,
+            "checksum_count": 1,
+            "releases": [{"version": "1.0.0"}],
+            "cadence": {"last_release_date": "2026-04-01"},
+        }
+
+        with mock.patch.object(data, "incubator_releases", module):
+            evidence = data.load_podling_release_artifacts(
+                "Alpha",
+                release_dist_base="/tmp/dist",
+                release_archive_base="/tmp/archive",
+                max_depth=0,
+            )
+
+        module.release_overview.assert_called_once_with(
+            "Alpha",
+            dist_base="/tmp/dist",
+            archive_base="/tmp/archive",
+            max_depth=0,
+        )
+        self.assertTrue(evidence["available"])
+        self.assertEqual(evidence["source"], "apache-incubator-releases")
+        self.assertEqual(evidence["release_count"], 1)
+
+    def test_load_podling_release_artifacts_handles_missing_release_mcp(self) -> None:
+        with mock.patch.object(data, "incubator_releases", None):
+            evidence = data.load_podling_release_artifacts("Alpha")
+
+        self.assertFalse(evidence["available"])
+        self.assertEqual(evidence["release_count"], 0)
+        self.assertIn("apache-incubator-releases-mcp is not installed", evidence["reason"])
+
     def test_default_health_source_matches_health_mcp_default(self) -> None:
         self.assertEqual(data.DEFAULT_HEALTH_SOURCE, "reports")
 

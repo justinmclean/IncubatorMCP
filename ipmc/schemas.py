@@ -26,6 +26,18 @@ MAIL_TIMESPAN_PROPERTY = {
     "type": "string",
     "description": "Optional MailMCP timespan expression for live Incubator general-list release evidence",
 }
+RELEASE_DIST_BASE_PROPERTY = {
+    "type": "string",
+    "description": "Optional ReleaseMCP dist.apache.org base URL or local release directory",
+}
+RELEASE_ARCHIVE_BASE_PROPERTY = {
+    "type": "string",
+    "description": "Optional ReleaseMCP archive.apache.org base URL or local archive directory",
+}
+RELEASE_MAX_DEPTH_PROPERTY = {
+    "type": "integer",
+    "description": "Maximum ReleaseMCP traversal depth under the podling directory; defaults to 1",
+}
 AS_OF_DATE_PROPERTY = {
     "type": "string",
     "description": "Optional YYYY-MM-DD date to evaluate data as of a specific day",
@@ -205,6 +217,16 @@ def release_vote_evidence_properties() -> dict[str, Any]:
         "mail_timespan": MAIL_TIMESPAN_PROPERTY,
         "podling": PODLING_PROPERTY,
         "limit": LIMIT_PROPERTY,
+    }
+
+
+def release_artifact_evidence_properties() -> dict[str, Any]:
+    return {
+        **base_properties(),
+        "release_dist_base": RELEASE_DIST_BASE_PROPERTY,
+        "release_archive_base": RELEASE_ARCHIVE_BASE_PROPERTY,
+        "release_max_depth": RELEASE_MAX_DEPTH_PROPERTY,
+        "podling": PODLING_PROPERTY,
     }
 
 

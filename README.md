@@ -9,6 +9,7 @@ It composes:
 - cached Incubator report entries from `apache-incubator-reports-mcp`
 - cached Incubator general-list messages from `apache-incubator-mail-mcp`
 - live Incubator release vote/result thread evidence from `apache-incubator-mail-mcp`
+- release artifact, signature, checksum, and cadence evidence from `apache-incubator-releases-mcp`
 
 It exposes opinionated Incubator-level tools to help the IPMC:
 
@@ -97,8 +98,10 @@ Configure startup defaults with command-line arguments or environment variables:
 - `--report-source` or `IPMC_REPORT_SOURCE`: local path for ReportMCP cached ASF Incubator report files
 - `--mail-source` or `IPMC_MAIL_SOURCE`: local path for MailMCP cached ASF Incubator general-list message files
 - `--mail-api-base` or `IPMC_MAIL_API_BASE`: MailMCP/Pony Mail API base URL for live Incubator general-list search
+- `--release-dist-base` or `IPMC_RELEASE_DIST_BASE`: ReleaseMCP `dist.apache.org` base URL or local release directory
+- `--release-archive-base` or `IPMC_RELEASE_ARCHIVE_BASE`: ReleaseMCP `archive.apache.org` base URL or local archive directory
 
-Per-tool `podlings_source`, `health_source`, `report_source`, `mail_source`, and `mail_api_base` arguments take precedence over startup defaults. If `podlings_source` is unset, it defaults to the ASF `podlings.xml` URL. If `health_source` is unset, it defaults to `reports`. If `report_source` is unset, it defaults to `.cache/incubator-reports`; a missing default ReportMCP cache is reported as unavailable rather than treated as an error. If `mail_source` is unset, it defaults to `.cache/incubator-general-mail`; a missing default MailMCP cache falls back to live MailMCP/Pony Mail search without writing cache files.
+Per-tool `podlings_source`, `health_source`, `report_source`, `mail_source`, `mail_api_base`, `release_dist_base`, and `release_archive_base` arguments take precedence over startup defaults. If `podlings_source` is unset, it defaults to the ASF `podlings.xml` URL. If `health_source` is unset, it defaults to `reports`. If `report_source` is unset, it defaults to `.cache/incubator-reports`; a missing default ReportMCP cache is reported as unavailable rather than treated as an error. If `mail_source` is unset, it defaults to `.cache/incubator-general-mail`; a missing default MailMCP cache falls back to live MailMCP/Pony Mail search without writing cache files.
 
 ## Test
 
@@ -165,6 +168,7 @@ Use this when a reviewer wants to check Incubator general-list discussion alongs
 - "Search general incubator mail for recent FooPodling graduation, release, or retirement discussion and summarize the relevant email evidence."
 - "For FooPodling, compare Incubator report concerns with recent general-list email threads that mention the podling."
 - "Show likely Incubator release vote and result threads for FooPodling and compare them with release visibility signals."
+- "Show FooPodling release artifacts, signatures, checksums, and Incubator naming evidence."
 
 ### Generating a Board Summary
 
@@ -275,6 +279,23 @@ Arguments:
 - `mail_timespan`: optional MailMCP timespan expression, defaults to the MailMCP release-search window
 - `limit`: optional max number of vote/result threads
 
+### `release_artifact_evidence`
+
+Return ReleaseMCP artifact, signature, checksum, cadence, and Incubator naming evidence for one podling alongside IPMC release visibility signals.
+
+Arguments:
+
+- `podling`: required podling name
+- `podlings_source`
+- `health_source`
+- `report_source`
+- `mail_source`
+- `mail_api_base`
+- `as_of_date`
+- `release_dist_base`: optional ReleaseMCP `dist.apache.org` base URL or local release directory
+- `release_archive_base`: optional ReleaseMCP `archive.apache.org` base URL or local archive directory
+- `release_max_depth`: optional traversal depth under the podling directory, `0` or `1`
+
 ### `reporting_cohort`
 
 Return current reporting podlings grouped into non-ranked IPMC review buckets: reporting issues, release visibility issues, recent significant changes, and no obvious concerns.
@@ -383,6 +404,8 @@ Arguments:
 - When omitted, `report_source` uses `--report-source`, `IPMC_REPORT_SOURCE`, or `.cache/incubator-reports` if no startup default is set.
 - When omitted, `mail_source` uses `--mail-source`, `IPMC_MAIL_SOURCE`, or `.cache/incubator-general-mail` if no startup default is set. If the default cache is missing, IPMC tools use live MailMCP search as a read-only fallback.
 - When omitted, `mail_api_base` uses `--mail-api-base`, `IPMC_MAIL_API_BASE`, or the public lists.apache.org API.
+- When omitted, `release_dist_base` uses `--release-dist-base`, `IPMC_RELEASE_DIST_BASE`, or the public Incubator dist release URL.
+- When omitted, `release_archive_base` uses `--release-archive-base`, `IPMC_RELEASE_ARCHIVE_BASE`, or the public Incubator archive URL.
 - Oversight views focus on current podlings by default.
 - Health analysis prefers the freshest available window in this order: `3m`, `6m`, `12m`, `to-date`.
 - Source metadata consistently exposes a `source` field. Health and ReportMCP metadata also preserve the upstream

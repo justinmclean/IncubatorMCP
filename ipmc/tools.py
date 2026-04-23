@@ -17,7 +17,7 @@ from .analysis import (
     significant_change_events,
     stalled_podling_signal,
 )
-from .data import build_records, load_podling_release_vote_history
+from .data import build_records, load_podling_release_artifacts, load_podling_release_vote_history
 
 SEVERITIES = {"low", "medium", "high", "critical"}
 BRIEF_FORMATS = {"summary", "detailed"}
@@ -105,6 +105,15 @@ def optional_integer(arguments: dict[str, Any], key: str) -> int | None:
         return None
     if not isinstance(value, int) or isinstance(value, bool):
         raise ValueError(f"'{key}' must be an integer")
+    return value
+
+
+def optional_depth(arguments: dict[str, Any], key: str, default: int = 1) -> int:
+    value = optional_integer(arguments, key)
+    if value is None:
+        return default
+    if value < 0 or value > 1:
+        raise ValueError(f"'{key}' must be 0 or 1")
     return value
 
 
@@ -965,6 +974,91 @@ def tool_release_vote_evidence(arguments: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def tool_release_artifact_evidence(arguments: dict[str, Any]) -> dict[str, Any]:
+    sources = _resolve_sources(arguments)
+    podling = require_string(arguments, "podling")
+    release_dist_base = optional_string(arguments, "release_dist_base")
+    release_archive_base = optional_string(arguments, "release_archive_base")
+    release_max_depth = optional_depth(arguments, "release_max_depth")
+
+    data = build_records(**sources)
+    record = _record_by_name(data["records"], podling)
+    evidence = load_podling_release_artifacts(
+        record.name,
+        release_dist_base=release_dist_base,
+        release_archive_base=release_archive_base,
+        max_depth=release_max_depth,
+    )
+    cadence = evidence.get("cadence") or {}
+    releases = evidence.get("releases") or []
+    release_signals = release_visibility_signals(record)
+    missing_sidecars = []
+    for release in releases:
+        for artifact in release.get("source_artifacts") or []:
+            if not artifact.get("signatures"):
+                missing_sidecars.append({"artifact": artifact.get("name"), "missing": "signature"})
+            if not artifact.get("checksums"):
+                missing_sidecars.append({"artifact": artifact.get("name"), "missing": "checksum"})
+    incubating_hints = evidence.get("incubating_hints") or {}
+    hint_text = incubating_hints.get("hints") or []
+    release_count = int(evidence.get("release_count") or 0)
+    summary = (
+        f"ReleaseMCP found {release_count} release group(s) and "
+        f"{evidence.get('source_artifact_count', 0)} source artifact(s) for {record.name}."
+    )
+
+    recommended_action = (
+        "Compare ReleaseMCP artifact evidence with release visibility signals and recent vote evidence."
+    )
+    if not evidence.get("available"):
+        recommended_action = "Check ReleaseMCP availability or release source configuration."
+    elif missing_sidecars or hint_text:
+        recommended_action = "Review release artifact sidecars and Incubator naming/disclaimer hints."
+
+    return {
+        "podlings_source": data["podlings_source"],
+        "health_source": data["health_source"],
+        "report_source": _report_source_meta(data),
+        "mail_source": _mail_source_meta(data),
+        "generated_for": "release_artifact_evidence",
+        "podling": record.name,
+        "release_source": {
+            "source": evidence.get("source"),
+            "dist_base": evidence.get("dist_base"),
+            "archive_base": evidence.get("archive_base"),
+            "available": evidence.get("available"),
+            "reason": evidence.get("reason"),
+            "sources": evidence.get("sources"),
+        },
+        "observed": {
+            "release_count": release_count,
+            "source_artifact_count": evidence.get("source_artifact_count", 0),
+            "signature_count": evidence.get("signature_count", 0),
+            "checksum_count": evidence.get("checksum_count", 0),
+            "last_release_date": cadence.get("last_release_date"),
+            "days_since_last_release": cadence.get("days_since_last_release"),
+            "cadence": cadence.get("cadence"),
+            "health_release_metrics": _metric_snapshot(record.reporting_metrics, ["releases"])
+            or _metric_snapshot(record.preferred_metrics, ["releases"]),
+        },
+        "releases": releases,
+        "missing_sidecars": missing_sidecars,
+        "incubating_hints": incubating_hints,
+        "release_visibility_signals": release_signals,
+        "summary": summary,
+        "recommended_ipmc_action": recommended_action,
+        "explainability": _explainability(
+            record,
+            [
+                summary,
+                "Release artifact evidence comes from ReleaseMCP dist/archive inspection.",
+                "Release visibility signals remain derived from apache-health/report data and are shown separately.",
+            ],
+            confidence=confidence_for_record(record),
+        ),
+    }
+
+
 def _cohort_bucket_item(record: Any, signals: list[dict[str, Any]], summary_key: str) -> dict[str, Any]:
     return {
         "podling": record.name,
@@ -1251,6 +1345,15 @@ TOOLS: dict[str, dict[str, Any]] = {
         ),
         handler=tool_release_vote_evidence,
         properties=schemas.release_vote_evidence_properties(),
+        required=["podling"],
+    ),
+    "release_artifact_evidence": schemas.tool_definition(
+        description=(
+            "Return ReleaseMCP artifact, sidecar, cadence, and Incubator naming evidence for one podling "
+            "alongside IPMC release visibility signals."
+        ),
+        handler=tool_release_artifact_evidence,
+        properties=schemas.release_artifact_evidence_properties(),
         required=["podling"],
     ),
     "reporting_cohort": schemas.tool_definition(
