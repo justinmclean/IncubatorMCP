@@ -203,6 +203,36 @@ class ToolTests(unittest.TestCase):
 
         self.assertNotIn("evidence", payload)
 
+    def test_graduation_readiness_skips_general_mail_loading(self) -> None:
+        record = OversightRecord(
+            podling={"name": "Delta", "status": "current", "mentors": ["A", "B"], "startdate": "2024-01-01"},
+            report_summary={"latest_metrics": {"3m": {}, "12m": {}}},
+            preferred_window="3m",
+            preferred_metrics={"commits": 30, "unique_committers": 4, "unique_authors": 5, "releases": 1},
+            reporting_window="12m",
+            reporting_metrics={"reports_count": 1, "avg_mentor_signoffs": 2.0},
+            as_of_date="2026-04-18",
+        )
+        data = {
+            "records": [record],
+            "podlings_source": {"source": "podlings.xml"},
+            "health_source": {"reports_dir": "reports"},
+            "report_source": {"source": "reports", "available": True},
+            "mail_source": {"source": "not_loaded", "available": False},
+        }
+        with mock.patch.object(tools, "build_records", return_value=data) as build:
+            tools.tool_graduation_readiness({"podling": "Delta", "as_of_date": "2026-04-18"})
+
+        build.assert_called_once_with(
+            podlings_source=None,
+            health_source=None,
+            report_source=None,
+            mail_source=None,
+            mail_api_base=None,
+            as_of_date="2026-04-18",
+            include_mail=False,
+        )
+
     def test_podling_brief_contains_expected_sections(self) -> None:
         with make_fixture_sources() as (podlings_source, health_source):
             payload = tools.tool_podling_brief(

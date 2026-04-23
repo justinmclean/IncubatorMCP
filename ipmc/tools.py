@@ -461,7 +461,7 @@ def tool_ipmc_watchlist(arguments: dict[str, Any]) -> dict[str, Any]:
     severity_minimum = optional_choice(arguments, "severity_at_least", SEVERITIES)
     include_reasons = optional_list_of_choices(arguments, "include_reasons", WATCHLIST_REASONS)
 
-    data = build_records(**sources)
+    data = build_records(**sources, include_mail=False)
     items = []
     for record in data["records"]:
         evaluation = evaluate_record(record)
@@ -505,7 +505,7 @@ def tool_graduation_readiness(arguments: dict[str, Any]) -> dict[str, Any]:
     include_evidence = optional_boolean(arguments, "include_evidence", True)
     strict_mode = optional_boolean(arguments, "strict_mode", False) or False
 
-    data = build_records(**sources)
+    data = build_records(**sources, include_mail=False)
     record = _record_by_name(data["records"], podling)
     readiness = readiness_assessment(record, strict_mode=strict_mode)
     confidence = confidence_for_record(record)
@@ -549,7 +549,7 @@ def tool_podling_brief(arguments: dict[str, Any]) -> dict[str, Any]:
     focus = optional_list_of_choices(arguments, "focus", FOCUS_AREAS) or []
     brief_format = optional_choice(arguments, "brief_format", BRIEF_FORMATS) or "summary"
 
-    data = build_records(**sources)
+    data = build_records(**sources, include_mail=False)
     record = _record_by_name(data["records"], podling)
     evaluation = evaluate_record(record)
     readiness = readiness_assessment(record)
@@ -621,7 +621,7 @@ def tool_mentoring_attention_needed(arguments: dict[str, Any]) -> dict[str, Any]
     urgency_minimum = optional_choice(arguments, "urgency_at_least", SEVERITIES)
     include_causes = optional_list_of_choices(arguments, "include_causes", MENTORING_CAUSES)
 
-    data = build_records(**sources)
+    data = build_records(**sources, include_mail=False)
     items = []
     for record in data["records"]:
         evaluation = evaluate_record(record)
@@ -686,7 +686,7 @@ def tool_recent_changes(arguments: dict[str, Any]) -> dict[str, Any]:
     podling = optional_string(arguments, "podling")
     limit = optional_integer(arguments, "limit") or 25
 
-    data = build_records(**sources)
+    data = build_records(**sources, include_mail=False)
     records = _maybe_filter_podling(data["records"], podling)
     items = []
     for record in records:
@@ -728,7 +728,7 @@ def tool_significant_changes(arguments: dict[str, Any]) -> dict[str, Any]:
     limit = optional_integer(arguments, "limit") or 25
     include_signals = optional_list_of_choices(arguments, "include_signals", SIGNIFICANT_CHANGE_SIGNALS)
 
-    data = build_records(**sources)
+    data = build_records(**sources, include_mail=False)
     records = _maybe_filter_podling(data["records"], podling)
     items = []
     for record in records:
@@ -776,7 +776,7 @@ def tool_reporting_gaps(arguments: dict[str, Any]) -> dict[str, Any]:
     limit = optional_integer(arguments, "limit") or 25
     include_gaps = optional_list_of_choices(arguments, "include_gaps", REPORTING_GAPS)
 
-    data = build_records(**sources)
+    data = build_records(**sources, include_mail=False)
     records = _maybe_filter_podling(data["records"], podling)
     items = []
     for record in records:
@@ -834,7 +834,7 @@ def tool_reporting_reliability(arguments: dict[str, Any]) -> dict[str, Any]:
         "reporting_data_unavailable",
     ]
 
-    data = build_records(**sources)
+    data = build_records(**sources, include_mail=False)
     records = _maybe_filter_podling(data["records"], podling)
     buckets: dict[str, list[dict[str, Any]]] = {category: [] for category in category_order}
 
@@ -897,7 +897,7 @@ def tool_release_visibility(arguments: dict[str, Any]) -> dict[str, Any]:
     limit = optional_integer(arguments, "limit") or 25
     include_signals = optional_list_of_choices(arguments, "include_signals", RELEASE_VISIBILITY_SIGNALS)
 
-    data = build_records(**sources)
+    data = build_records(**sources, include_mail=False)
     records = _maybe_filter_podling(data["records"], podling)
     items = []
     for record in records:
@@ -943,7 +943,7 @@ def tool_release_vote_evidence(arguments: dict[str, Any]) -> dict[str, Any]:
     mail_timespan = optional_string(arguments, "mail_timespan")
     limit = optional_integer(arguments, "limit") or 20
 
-    data = build_records(**sources)
+    data = build_records(**sources, include_mail=True)
     record = _record_by_name(data["records"], podling)
     history = load_podling_release_vote_history(
         record.name,
@@ -1096,7 +1096,7 @@ def tool_reporting_cohort(arguments: dict[str, Any]) -> dict[str, Any]:
     sources = _resolve_sources(arguments)
     podling = optional_string(arguments, "podling")
 
-    data = build_records(**sources)
+    data = build_records(**sources, include_mail=False)
     records = [
         record for record in _maybe_filter_podling(data["records"], podling) if record.report_summary is not None
     ]
@@ -1168,7 +1168,7 @@ def tool_stalled_podlings(arguments: dict[str, Any]) -> dict[str, Any]:
     sources = _resolve_sources(arguments)
     limit = optional_integer(arguments, "limit") or 25
 
-    data = build_records(**sources)
+    data = build_records(**sources, include_mail=False)
     items = []
     for record in data["records"]:
         signal = stalled_podling_signal(record)
@@ -1216,7 +1216,7 @@ def tool_community_health_summary(arguments: dict[str, Any]) -> dict[str, Any]:
     group_by = optional_choice(arguments, "group_by", GROUPINGS) or "risk_band"
     include_examples = optional_boolean(arguments, "include_examples", True)
 
-    data = build_records(**sources)
+    data = build_records(**sources, include_mail=False)
     records = data["records"]
     if scope == "reporting_podlings":
         records = [record for record in records if record.report_summary is not None]

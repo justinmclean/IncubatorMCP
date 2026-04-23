@@ -400,3 +400,16 @@ class DataTests(unittest.TestCase):
         self.assertEqual(current_only["records"][0].name, "Alpha")
         self.assertIn("report_source", current_only)
         self.assertIn("mail_source", current_only)
+
+    def test_build_records_skips_general_mail_by_default(self) -> None:
+        with make_fixture_sources() as (podlings_source, health_source):
+            with mock.patch.object(data, "load_incubator_general_mail") as load_mail:
+                records = data.build_records(
+                    podlings_source=podlings_source,
+                    health_source=health_source,
+                    as_of_date="2026-04-18",
+                )
+
+        load_mail.assert_not_called()
+        self.assertFalse(records["mail_source"]["available"])
+        self.assertEqual(records["mail_source"]["source"], "not_loaded")

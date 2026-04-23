@@ -619,7 +619,7 @@ def build_records(
     mail_api_base: str | None = None,
     as_of_date: str | None = None,
     include_non_current: bool = False,
-    include_mail: bool = True,
+    include_mail: bool = False,
 ) -> dict[str, Any]:
     podlings, podlings_meta = load_podlings(podlings_source)
     summaries, health_meta = load_health_summaries(health_source)
