@@ -14,6 +14,7 @@ from .analysis import (
     reporting_gap_signals,
     reporting_reliability_pattern,
     severity_at_least,
+    severity_value,
     significant_change_events,
     stalled_podling_signal,
 )
@@ -78,6 +79,14 @@ SIGNIFICANT_CHANGE_SIGNALS = {
     "reports_newly_missing",
     "releases_disappeared",
 }
+
+
+def _highest_severity(items: list[dict[str, Any]], field: str = "severity") -> str:
+    return max(items, key=lambda item: severity_value(str(item[field])))[field]
+
+
+def _sort_by_severity_then_podling(items: list[dict[str, Any]], field: str = "severity") -> None:
+    items.sort(key=lambda item: (-severity_value(str(item[field])), item["podling"].casefold()))
 
 
 def require_string(arguments: dict[str, Any], key: str) -> str:
@@ -488,7 +497,7 @@ def tool_ipmc_watchlist(arguments: dict[str, Any]) -> dict[str, Any]:
             }
         )
 
-    items.sort(key=lambda item: (-SEVERITIES_ORDER[item["severity"]], item["podling"].casefold()))
+    _sort_by_severity_then_podling(items)
     return {
         "podlings_source": data["podlings_source"],
         "health_source": data["health_source"],
@@ -672,7 +681,7 @@ def tool_mentoring_attention_needed(arguments: dict[str, Any]) -> dict[str, Any]
             }
         )
 
-    items.sort(key=lambda item: (-SEVERITIES_ORDER[item["urgency"]], item["podling"].casefold()))
+    _sort_by_severity_then_podling(items, field="urgency")
     return {
         "podlings_source": data["podlings_source"],
         "health_source": data["health_source"],
@@ -786,7 +795,7 @@ def tool_reporting_gaps(arguments: dict[str, Any]) -> dict[str, Any]:
             gaps = [gap for gap in gaps if gap["gap"] in include_gaps]
         if not gaps:
             continue
-        severity = max(gaps, key=lambda gap: SEVERITIES_ORDER[gap["severity"]])["severity"]
+        severity = _highest_severity(gaps)
         items.append(
             {
                 "podling": record.name,
@@ -806,7 +815,7 @@ def tool_reporting_gaps(arguments: dict[str, Any]) -> dict[str, Any]:
             }
         )
 
-    items.sort(key=lambda item: (-SEVERITIES_ORDER[item["severity"]], item["podling"].casefold()))
+    _sort_by_severity_then_podling(items)
     return {
         "podlings_source": data["podlings_source"],
         "health_source": data["health_source"],
@@ -907,7 +916,7 @@ def tool_release_visibility(arguments: dict[str, Any]) -> dict[str, Any]:
             signals = [signal for signal in signals if signal["signal"] in include_signals]
         if not signals:
             continue
-        severity = max(signals, key=lambda signal: SEVERITIES_ORDER[signal["severity"]])["severity"]
+        severity = _highest_severity(signals)
         items.append(
             {
                 "podling": record.name,
@@ -925,7 +934,7 @@ def tool_release_visibility(arguments: dict[str, Any]) -> dict[str, Any]:
             }
         )
 
-    items.sort(key=lambda item: (-SEVERITIES_ORDER[item["severity"]], item["podling"].casefold()))
+    _sort_by_severity_then_podling(items)
     return {
         "podlings_source": data["podlings_source"],
         "health_source": data["health_source"],
@@ -1439,9 +1448,6 @@ def tool_community_health_summary(arguments: dict[str, Any]) -> dict[str, Any]:
             example_podlings=watchlist_overlap or mentor_risk or strong_examples,
         ),
     }
-
-
-SEVERITIES_ORDER = {"low": 0, "medium": 1, "high": 2, "critical": 3}
 
 
 TOOLS: dict[str, dict[str, Any]] = {
