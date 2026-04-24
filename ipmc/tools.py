@@ -237,6 +237,34 @@ def _maybe_filter_podling(records: list[Any], podling: str | None) -> list[Any]:
     return [_record_by_name(records, podling)]
 
 
+def _load_tool_records(
+    arguments: dict[str, Any],
+    *,
+    include_mail: bool = False,
+    include_non_current: bool = False,
+    podling_key: str = "podling",
+) -> tuple[dict[str, Any], dict[str, Any], list[Any], str | None]:
+    sources = _resolve_sources(arguments)
+    data = build_records(
+        **sources,
+        include_mail=include_mail,
+        include_non_current=include_non_current,
+    )
+    podling = optional_string(arguments, podling_key)
+    records = _maybe_filter_podling(data["records"], podling)
+    return sources, data, records, podling
+
+
+def _limit_sorted_items(
+    items: list[dict[str, Any]],
+    *,
+    limit: int,
+    sort_key: Any,
+) -> list[dict[str, Any]]:
+    items.sort(key=sort_key)
+    return items[:limit]
+
+
 def _watch_reasons(record: Any, evaluation: dict[str, Any]) -> list[str]:
     reasons: list[str] = []
     metrics = record.preferred_metrics
@@ -694,12 +722,9 @@ def tool_mentoring_attention_needed(arguments: dict[str, Any]) -> dict[str, Any]
 
 
 def tool_recent_changes(arguments: dict[str, Any]) -> dict[str, Any]:
-    sources = _resolve_sources(arguments)
-    podling = optional_string(arguments, "podling")
+    sources, data, records, _ = _load_tool_records(arguments)
     limit = optional_integer(arguments, "limit") or 25
 
-    data = build_records(**sources, include_mail=False)
-    records = _maybe_filter_podling(data["records"], podling)
     items = []
     for record in records:
         changes = recent_change_events(record)
@@ -722,22 +747,22 @@ def tool_recent_changes(arguments: dict[str, Any]) -> dict[str, Any]:
             }
         )
 
-    items.sort(key=lambda item: (-len(item["changes"]), item["podling"].casefold()))
     return {
         **_source_context(data, generated_for="recent_changes"),
         "as_of_date": sources["as_of_date"],
-        "items": items[:limit],
+        "items": _limit_sorted_items(
+            items,
+            limit=limit,
+            sort_key=lambda item: (-len(item["changes"]), item["podling"].casefold()),
+        ),
     }
 
 
 def tool_significant_changes(arguments: dict[str, Any]) -> dict[str, Any]:
-    sources = _resolve_sources(arguments)
-    podling = optional_string(arguments, "podling")
+    sources, data, records, _ = _load_tool_records(arguments)
     limit = optional_integer(arguments, "limit") or 25
     include_signals = optional_list_of_choices(arguments, "include_signals", SIGNIFICANT_CHANGE_SIGNALS)
 
-    data = build_records(**sources, include_mail=False)
-    records = _maybe_filter_podling(data["records"], podling)
     items = []
     for record in records:
         changes = significant_change_events(record)
@@ -765,23 +790,23 @@ def tool_significant_changes(arguments: dict[str, Any]) -> dict[str, Any]:
             }
         )
 
-    items.sort(key=lambda item: (-len(item["changes"]), item["podling"].casefold()))
     return {
         **_source_context(data, generated_for="significant_changes"),
         "as_of_date": sources["as_of_date"],
         "included_signals": include_signals,
-        "items": items[:limit],
+        "items": _limit_sorted_items(
+            items,
+            limit=limit,
+            sort_key=lambda item: (-len(item["changes"]), item["podling"].casefold()),
+        ),
     }
 
 
 def tool_reporting_gaps(arguments: dict[str, Any]) -> dict[str, Any]:
-    sources = _resolve_sources(arguments)
-    podling = optional_string(arguments, "podling")
+    sources, data, records, _ = _load_tool_records(arguments)
     limit = optional_integer(arguments, "limit") or 25
     include_gaps = optional_list_of_choices(arguments, "include_gaps", REPORTING_GAPS)
 
-    data = build_records(**sources, include_mail=False)
-    records = _maybe_filter_podling(data["records"], podling)
     items = []
     for record in records:
         gaps = reporting_gap_signals(record)
@@ -809,11 +834,14 @@ def tool_reporting_gaps(arguments: dict[str, Any]) -> dict[str, Any]:
             }
         )
 
-    _sort_by_severity_then_podling(items)
     return {
         **_source_context(data, generated_for="reporting_gaps"),
         "as_of_date": sources["as_of_date"],
-        "items": items[:limit],
+        "items": _limit_sorted_items(
+            items,
+            limit=limit,
+            sort_key=lambda item: (-severity_value(str(item["severity"])), item["podling"].casefold()),
+        ),
     }
 
 
@@ -888,13 +916,10 @@ def tool_reporting_reliability(arguments: dict[str, Any]) -> dict[str, Any]:
 
 
 def tool_release_visibility(arguments: dict[str, Any]) -> dict[str, Any]:
-    sources = _resolve_sources(arguments)
-    podling = optional_string(arguments, "podling")
+    sources, data, records, _ = _load_tool_records(arguments)
     limit = optional_integer(arguments, "limit") or 25
     include_signals = optional_list_of_choices(arguments, "include_signals", RELEASE_VISIBILITY_SIGNALS)
 
-    data = build_records(**sources, include_mail=False)
-    records = _maybe_filter_podling(data["records"], podling)
     items = []
     for record in records:
         signals = release_visibility_signals(record)
@@ -920,11 +945,14 @@ def tool_release_visibility(arguments: dict[str, Any]) -> dict[str, Any]:
             }
         )
 
-    _sort_by_severity_then_podling(items)
     return {
         **_source_context(data, generated_for="release_visibility"),
         "as_of_date": sources["as_of_date"],
-        "items": items[:limit],
+        "items": _limit_sorted_items(
+            items,
+            limit=limit,
+            sort_key=lambda item: (-severity_value(str(item["severity"])), item["podling"].casefold()),
+        ),
     }
 
 
@@ -1095,13 +1123,8 @@ def _cohort_bucket_item(record: Any, signals: list[dict[str, Any]], summary_key:
 
 
 def tool_reporting_cohort(arguments: dict[str, Any]) -> dict[str, Any]:
-    sources = _resolve_sources(arguments)
-    podling = optional_string(arguments, "podling")
-
-    data = build_records(**sources, include_mail=False)
-    records = [
-        record for record in _maybe_filter_podling(data["records"], podling) if record.report_summary is not None
-    ]
+    sources, data, records, _ = _load_tool_records(arguments)
+    records = [record for record in records if record.report_summary is not None]
     buckets: dict[str, list[dict[str, Any]]] = {
         "reporting_issues": [],
         "release_visibility_issues": [],
@@ -1163,12 +1186,11 @@ def tool_reporting_cohort(arguments: dict[str, Any]) -> dict[str, Any]:
 
 
 def tool_stalled_podlings(arguments: dict[str, Any]) -> dict[str, Any]:
-    sources = _resolve_sources(arguments)
+    sources, data, records, _ = _load_tool_records(arguments)
     limit = optional_integer(arguments, "limit") or 25
 
-    data = build_records(**sources, include_mail=False)
     items = []
-    for record in data["records"]:
+    for record in records:
         signal = stalled_podling_signal(record)
         if signal is None:
             continue
@@ -1196,11 +1218,14 @@ def tool_stalled_podlings(arguments: dict[str, Any]) -> dict[str, Any]:
             }
         )
 
-    items.sort(key=lambda item: item["podling"].casefold())
     return {
         **_source_context(data, generated_for="stalled_podlings"),
         "as_of_date": sources["as_of_date"],
-        "items": items[:limit],
+        "items": _limit_sorted_items(
+            items,
+            limit=limit,
+            sort_key=lambda item: item["podling"].casefold(),
+        ),
     }
 
 
