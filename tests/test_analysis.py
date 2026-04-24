@@ -8,6 +8,7 @@ from ipmc.analysis import (
     confidence_for_record,
     evaluate_record,
     readiness_assessment,
+    report_narrative_signals,
     reporting_reliability_pattern,
     severity_at_least,
     severity_value,
@@ -237,6 +238,57 @@ class AnalysisTests(unittest.TestCase):
         signoff_signal = next(signal for signal in result["signals"] if signal.signal == "mentor_engagement")
 
         self.assertEqual(signoff_signal.severity, "medium")
+
+    def test_report_narrative_signals_detect_recurring_issues_and_release_mismatch(self) -> None:
+        record = make_record(
+            startdate="2024-01-01",
+            metrics={
+                "commits": 30,
+                "unique_committers": 4,
+                "unique_authors": 5,
+                "releases": 0,
+                "trends": {},
+            },
+            twelve_month_metrics={
+                "commits": 90,
+                "unique_committers": 5,
+                "unique_authors": 6,
+                "releases": 0,
+                "median_gap_days": 220.0,
+                "trends": {},
+            },
+        )
+        record.incubator_reports = [
+            {
+                "report_id": "2026-01",
+                "report_period": "2026-01",
+                "issues": ["Need more community review", "Release pending"],
+                "observed_mentor_signoff_count": 2,
+                "last_release": "0.9.0",
+            },
+            {
+                "report_id": "2026-04",
+                "report_period": "2026-04",
+                "issues": ["Need more community review", "Mentor follow-up needed"],
+                "observed_mentor_signoff_count": 1,
+                "last_release": "0.9.0",
+            },
+        ]
+
+        signals = report_narrative_signals(record)
+        signal_names = {signal["signal"] for signal in signals}
+
+        self.assertEqual(
+            signal_names,
+            {
+                "latest_reported_issues",
+                "recurring_reported_issue",
+                "low_observed_mentor_signoff",
+                "report_release_visibility_mismatch",
+            },
+        )
+        repeated = next(signal for signal in signals if signal["signal"] == "recurring_reported_issue")
+        self.assertEqual(repeated["current_value"][0]["issue"], "Need more community review")
 
     def test_evaluate_record_softens_signoff_signal_for_mature_podlings(self) -> None:
         record = make_record(

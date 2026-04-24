@@ -16,6 +16,7 @@ It exposes opinionated Incubator-level tools to help the IPMC:
 - identify podlings needing attention
 - scan recent podling-level changes
 - find Incubator reporting gaps
+- surface recurring or unresolved report-narrative issues from cached Incubator reports
 - review release visibility and Incubator release vote evidence through a governance lens
 - identify tightly-defined stalled podlings
 - assess graduation readiness
@@ -138,6 +139,7 @@ Use this when preparing for a monthly Incubator oversight pass:
 - "Show me current podlings with reporting gaps, but keep that separate from community health concerns."
 - "Which podlings have repeated reporting reliability issues rather than a one-off late report?"
 - "Which current podlings call out unresolved issues in their recent Incubator reports?"
+- "Show me recurring issues from cached Incubator reports, and flag where the latest report still needs mentor follow-up."
 - "Compare reported podling issues with health signals and tell me which podlings need follow-up."
 - "Which current podlings do not appear to have a recent Incubator report?"
 - "Highlight podlings where the report narrative and recent health metrics point to different risks."
@@ -279,6 +281,17 @@ Arguments:
 
 - `as_of_date`
 - `podling`: optional podling name filter
+
+### `report_narrative_signals`
+
+Return report-derived signals from cached Incubator reports, including latest reported issues, recurring issues across report history, low observed mentor sign-off, and mismatches between report narrative release claims and health-based release visibility.
+
+Arguments:
+
+- `as_of_date`
+- `podling`: optional podling name filter
+- `limit`: optional max number of results
+- `include_signals`: optional report narrative signal filter list
 
 ### `stalled_podlings`
 

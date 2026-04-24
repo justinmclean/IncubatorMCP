@@ -31,6 +31,7 @@ class ProtocolTests(unittest.TestCase):
                 "release_vote_evidence",
                 "release_artifact_evidence",
                 "reporting_cohort",
+                "report_narrative_signals",
                 "stalled_podlings",
                 "ipmc_watchlist",
                 "graduation_readiness",

@@ -1056,6 +1056,100 @@ class ToolTests(unittest.TestCase):
         self.assertNotIn("E-MissingHealth", str(payload["buckets"]))
         assert_explainability(self, payload["explainability"])
 
+    def test_report_narrative_signals_surfaces_latest_and_recurring_report_issues(self) -> None:
+        record = OversightRecord(
+            podling={"name": "Signals", "status": "current", "mentors": ["A", "B"], "startdate": "2024-01-01"},
+            report_summary={
+                "latest_metrics": {
+                    "3m": {"commits": 20, "unique_committers": 3, "unique_authors": 4, "releases": 0},
+                    "12m": {"releases": 0, "median_gap_days": 220.0},
+                }
+            },
+            preferred_window="3m",
+            preferred_metrics={"commits": 20, "unique_committers": 3, "unique_authors": 4, "releases": 0},
+            reporting_window="12m",
+            reporting_metrics={"reports_count": 1, "avg_mentor_signoffs": 1.0},
+            as_of_date="2026-04-18",
+            incubator_reports=[
+                {
+                    "report_id": "2026-01",
+                    "report_period": "2026-01",
+                    "issues": ["Community growth needed"],
+                    "observed_mentor_signoff_count": 2,
+                    "last_release": "0.8.0",
+                },
+                {
+                    "report_id": "2026-04",
+                    "report_period": "2026-04",
+                    "issues": ["Community growth needed", "Release follow-up"],
+                    "observed_mentor_signoff_count": 1,
+                    "last_release": "0.8.0",
+                },
+            ],
+        )
+        data = {
+            "records": [record],
+            "podlings_source": {"source": "podlings.xml"},
+            "health_source": {"reports_dir": "reports"},
+            "report_source": {"source": "report-cache", "available": True},
+            "mail_source": {"source": "mail-cache", "available": True},
+        }
+        with mock.patch.object(tools, "build_records", return_value=data):
+            payload = tools.tool_report_narrative_signals({})
+
+        self.assertEqual(payload["generated_for"], "report_narrative_signals")
+        self.assertEqual(payload["items"][0]["podling"], "Signals")
+        self.assertEqual(payload["items"][0]["severity"], "medium")
+        self.assertEqual(payload["items"][0]["latest_report_period"], "2026-04")
+        self.assertEqual(payload["items"][0]["report_entry_count"], 2)
+        self.assertEqual(
+            [signal["signal"] for signal in payload["items"][0]["signals"]],
+            [
+                "latest_reported_issues",
+                "recurring_reported_issue",
+                "low_observed_mentor_signoff",
+                "report_release_visibility_mismatch",
+            ],
+        )
+        assert_explainability(self, payload["items"][0]["explainability"])
+
+    def test_report_narrative_signals_filters_requested_signal_types(self) -> None:
+        record = OversightRecord(
+            podling={"name": "Signals", "status": "current", "mentors": ["A", "B"], "startdate": "2024-01-01"},
+            report_summary={"latest_metrics": {"3m": {"releases": 0}, "12m": {"releases": 0}}},
+            preferred_window="3m",
+            preferred_metrics={"commits": 20, "unique_committers": 3, "unique_authors": 4, "releases": 0},
+            reporting_window="12m",
+            reporting_metrics={"reports_count": 1, "avg_mentor_signoffs": 1.0},
+            as_of_date="2026-04-18",
+            incubator_reports=[
+                {
+                    "report_id": "2026-04",
+                    "report_period": "2026-04",
+                    "issues": ["Community growth needed"],
+                    "observed_mentor_signoff_count": 1,
+                }
+            ],
+        )
+        data = {
+            "records": [record],
+            "podlings_source": {"source": "podlings.xml"},
+            "health_source": {"reports_dir": "reports"},
+            "report_source": {"source": "report-cache", "available": True},
+            "mail_source": {"source": "mail-cache", "available": True},
+        }
+        with mock.patch.object(tools, "build_records", return_value=data):
+            payload = tools.tool_report_narrative_signals(
+                {"include_signals": ["low_observed_mentor_signoff"], "limit": 1}
+            )
+
+        self.assertEqual(payload["included_signals"], ["low_observed_mentor_signoff"])
+        self.assertEqual(len(payload["items"]), 1)
+        self.assertEqual(
+            [signal["signal"] for signal in payload["items"][0]["signals"]],
+            ["low_observed_mentor_signoff"],
+        )
+
     def test_stalled_podlings_require_all_stall_conditions(self) -> None:
         stalled = OversightRecord(
             podling={"name": "Stalled", "status": "current", "mentors": ["A", "B"], "startdate": "2024-01-01"},

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -24,6 +25,7 @@ SIGNIFICANT_ACTIVITY_FIELDS = {
     "unique_committers": "active committer breadth",
     "dev_unique_posters": "dev-list participation",
 }
+REPORT_ISSUE_NORMALIZE_RE = re.compile(r"[^a-z0-9]+")
 
 
 def severity_value(value: str) -> int:
@@ -901,3 +903,98 @@ def community_pattern(record: OversightRecord) -> str:
     if commits <= 10 or unique_committers <= 2:
         return "weak_activity"
     return "steady_progress"
+
+
+def _normalize_report_issue(issue: str) -> str:
+    return REPORT_ISSUE_NORMALIZE_RE.sub(" ", issue.casefold()).strip()
+
+
+def report_narrative_signals(record: OversightRecord) -> list[dict[str, Any]]:
+    """Return explicit signals derived from cached report narrative fields."""
+    if not record.incubator_reports:
+        return []
+
+    latest_report = record.incubator_reports[-1]
+    latest_period = latest_report.get("report_period")
+    latest_report_id = latest_report.get("report_id")
+    latest_issues = [str(issue).strip() for issue in latest_report.get("issues") or [] if str(issue).strip()]
+    signals: list[dict[str, Any]] = []
+
+    if latest_issues:
+        signals.append(
+            {
+                "signal": "latest_reported_issues",
+                "severity": "medium",
+                "report_period": latest_period,
+                "report_id": latest_report_id,
+                "current_value": latest_issues,
+                "reason": f"The most recent cached Incubator report lists {len(latest_issues)} issue(s).",
+            }
+        )
+
+    recurring_issues: dict[str, dict[str, Any]] = {}
+    for report in record.incubator_reports:
+        seen_in_report: set[str] = set()
+        for raw_issue in report.get("issues") or []:
+            issue = str(raw_issue).strip()
+            if not issue:
+                continue
+            normalized = _normalize_report_issue(issue)
+            if not normalized or normalized in seen_in_report:
+                continue
+            seen_in_report.add(normalized)
+            if normalized not in recurring_issues:
+                recurring_issues[normalized] = {"issue": issue, "count": 0}
+            recurring_issues[normalized]["count"] += 1
+
+    repeated = [
+        {"issue": item["issue"], "report_count": item["count"]}
+        for item in recurring_issues.values()
+        if int(item["count"]) >= 2
+    ]
+    if repeated:
+        repeated.sort(key=lambda item: (-item["report_count"], item["issue"].casefold()))
+        signals.append(
+            {
+                "signal": "recurring_reported_issue",
+                "severity": "medium",
+                "report_period": latest_period,
+                "report_id": latest_report_id,
+                "current_value": repeated,
+                "reason": "Some reported issues recur across multiple cached Incubator reports.",
+            }
+        )
+
+    observed_signoffs = latest_report.get("observed_mentor_signoff_count")
+    if isinstance(observed_signoffs, int | float) and observed_signoffs < 2:
+        signals.append(
+            {
+                "signal": "low_observed_mentor_signoff",
+                "severity": "high" if observed_signoffs == 0 else "medium",
+                "report_period": latest_period,
+                "report_id": latest_report_id,
+                "current_value": observed_signoffs,
+                "reason": "The most recent cached Incubator report shows fewer than two observed mentor sign-offs.",
+            }
+        )
+
+    last_release = str(latest_report.get("last_release") or "").strip()
+    if last_release and any(signal["signal"] == "no_releases_12m" for signal in release_visibility_signals(record)):
+        signals.append(
+            {
+                "signal": "report_release_visibility_mismatch",
+                "severity": "medium",
+                "report_period": latest_period,
+                "report_id": latest_report_id,
+                "current_value": {
+                    "last_release": last_release,
+                    "release_visibility_signals": [signal["signal"] for signal in release_visibility_signals(record)],
+                },
+                "reason": (
+                    "The most recent cached Incubator report mentions a last release, "
+                    "but health data shows no releases in the 12-month window."
+                ),
+            }
+        )
+
+    return signals

@@ -248,6 +248,27 @@ def reporting_cohort_properties() -> dict[str, Any]:
     }
 
 
+def report_narrative_signals_properties() -> dict[str, Any]:
+    return {
+        **base_properties(),
+        "podling": PODLING_PROPERTY,
+        "limit": LIMIT_PROPERTY,
+        "include_signals": {
+            "type": "array",
+            "description": "Optional report narrative signal filters",
+            "items": {
+                "type": "string",
+                "enum": [
+                    "latest_reported_issues",
+                    "recurring_reported_issue",
+                    "low_observed_mentor_signoff",
+                    "report_release_visibility_mismatch",
+                ],
+            },
+        },
+    }
+
+
 def stalled_podlings_properties() -> dict[str, Any]:
     return {
         **base_properties(),

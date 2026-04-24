@@ -11,6 +11,7 @@ from .analysis import (
     readiness_assessment,
     recent_change_events,
     release_visibility_signals,
+    report_narrative_signals,
     reporting_gap_signals,
     reporting_reliability_pattern,
     severity_at_least,
@@ -78,6 +79,12 @@ SIGNIFICANT_CHANGE_SIGNALS = {
     "meaningful_activity_shift",
     "reports_newly_missing",
     "releases_disappeared",
+}
+REPORT_NARRATIVE_SIGNALS = {
+    "latest_reported_issues",
+    "recurring_reported_issue",
+    "low_observed_mentor_signoff",
+    "report_release_visibility_mismatch",
 }
 
 
@@ -1185,6 +1192,47 @@ def tool_reporting_cohort(arguments: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def tool_report_narrative_signals(arguments: dict[str, Any]) -> dict[str, Any]:
+    sources, data, records, _ = _load_tool_records(arguments)
+    limit = optional_integer(arguments, "limit") or 25
+    include_signals = optional_list_of_choices(arguments, "include_signals", REPORT_NARRATIVE_SIGNALS)
+
+    items = []
+    for record in records:
+        signals = report_narrative_signals(record)
+        if include_signals:
+            signals = [signal for signal in signals if signal["signal"] in include_signals]
+        if not signals:
+            continue
+        latest_report_period = record.incubator_reports[-1].get("report_period") if record.incubator_reports else None
+        reasoning = [str(signal["reason"]) for signal in signals]
+        items.append(
+            {
+                "podling": record.name,
+                "severity": _highest_severity(signals),
+                "latest_report_period": latest_report_period,
+                "report_entry_count": len(record.incubator_reports),
+                "signals": signals,
+                "summary": signals[0]["reason"],
+                "recommended_ipmc_action": (
+                    "Review recent Incubator report concerns against current health and release evidence."
+                ),
+                "explainability": _explainability(record, reasoning, confidence=confidence_for_record(record)),
+            }
+        )
+
+    return {
+        **_source_context(data, generated_for="report_narrative_signals"),
+        "as_of_date": sources["as_of_date"],
+        "included_signals": include_signals,
+        "items": _limit_sorted_items(
+            items,
+            limit=limit,
+            sort_key=lambda item: (-severity_value(str(item["severity"])), item["podling"].casefold()),
+        ),
+    }
+
+
 def tool_stalled_podlings(arguments: dict[str, Any]) -> dict[str, Any]:
     sources, data, records, _ = _load_tool_records(arguments)
     limit = optional_integer(arguments, "limit") or 25
@@ -1511,6 +1559,14 @@ TOOLS: dict[str, dict[str, Any]] = {
         ),
         handler=tool_reporting_cohort,
         properties=schemas.reporting_cohort_properties(),
+    ),
+    "report_narrative_signals": schemas.tool_definition(
+        description=(
+            "Return report-derived narrative signals such as latest reported issues, recurring issues, "
+            "low observed mentor sign-off, and release visibility mismatches."
+        ),
+        handler=tool_report_narrative_signals,
+        properties=schemas.report_narrative_signals_properties(),
     ),
     "stalled_podlings": schemas.tool_definition(
         description=("Return podlings that match the strict low-delivery, no-release stalled definition."),
