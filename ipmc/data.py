@@ -469,6 +469,7 @@ def load_incubator_general_mail(
     podlings: list[dict[str, Any]] | None = None,
     *,
     mail_api_base: str | None = None,
+    allow_live_fallback: bool = True,
 ) -> tuple[dict[str, list[dict[str, Any]]], dict[str, Any]]:
     cache_dir, explicit = _resolved_mail_source(mail_source)
     api_base = _resolved_mail_api_base(mail_api_base)
@@ -481,6 +482,15 @@ def load_incubator_general_mail(
     if not Path(cache_dir).expanduser().exists():
         if explicit:
             raise FileNotFoundError(f"MailMCP source path does not exist: {cache_dir}")
+        if not allow_live_fallback:
+            return (
+                {},
+                _mail_unavailable_meta(
+                    cache_dir,
+                    "Default MailMCP cache directory does not exist.",
+                    api_base=api_base,
+                ),
+            )
         try:
             live_mail, live_meta = _load_live_incubator_general_mail(podlings, api_base=api_base)
         except Exception as exc:

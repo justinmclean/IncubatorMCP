@@ -20,6 +20,7 @@ from .analysis import (
 from .data import (
     build_records,
     configure_defaults,
+    load_incubator_general_mail,
     load_podling_release_artifacts,
     load_podling_release_vote_history,
     source_defaults,
@@ -943,8 +944,14 @@ def tool_release_vote_evidence(arguments: dict[str, Any]) -> dict[str, Any]:
     mail_timespan = optional_string(arguments, "mail_timespan")
     limit = optional_integer(arguments, "limit") or 20
 
-    data = build_records(**sources, include_mail=True)
+    data = build_records(**sources, include_mail=False)
     record = _record_by_name(data["records"], podling)
+    cached_mail_entries, cached_mail_meta = load_incubator_general_mail(
+        mail_source=sources["mail_source"],
+        podlings=[record.podling],
+        mail_api_base=mail_api_base,
+        allow_live_fallback=False,
+    )
     history = load_podling_release_vote_history(
         record.name,
         mail_api_base=mail_api_base,
@@ -955,6 +962,7 @@ def tool_release_vote_evidence(arguments: dict[str, Any]) -> dict[str, Any]:
     results = history.get("results") or []
     release_signals = release_visibility_signals(record)
     has_results = bool(results)
+    cached_general_mail_matches = len(cached_mail_entries.get(record.name.casefold(), []))
     summary = (
         f"MailMCP found {len(votes)} likely Incubator release vote thread(s) and "
         f"{len(results)} likely result thread(s) for {record.name}."
@@ -969,7 +977,7 @@ def tool_release_vote_evidence(arguments: dict[str, Any]) -> dict[str, Any]:
         "podlings_source": data["podlings_source"],
         "health_source": data["health_source"],
         "report_source": _report_source_meta(data),
-        "mail_source": _mail_source_meta(data),
+        "mail_source": cached_mail_meta,
         "generated_for": "release_vote_evidence",
         "podling": record.name,
         "mail_history_source": {
@@ -983,7 +991,7 @@ def tool_release_vote_evidence(arguments: dict[str, Any]) -> dict[str, Any]:
         "observed": {
             "vote_count": history.get("vote_count", len(votes)),
             "result_count": history.get("result_count", len(results)),
-            "cached_general_mail_matches": len(record.incubator_general_mail),
+            "cached_general_mail_matches": cached_general_mail_matches,
             "health_release_metrics": _metric_snapshot(record.reporting_metrics, ["releases"])
             or _metric_snapshot(record.preferred_metrics, ["releases"]),
         },

@@ -710,14 +710,12 @@ class ToolTests(unittest.TestCase):
             reporting_window="12m",
             reporting_metrics={"reports_count": 1, "avg_mentor_signoffs": 2.0},
             as_of_date="2026-04-18",
-            incubator_general_mail=[{"id": "cached-message"}],
         )
         data = {
             "records": [record],
             "podlings_source": {"source": "podlings.xml"},
             "health_source": {"reports_dir": "reports"},
             "report_source": {"source": "reports", "available": True},
-            "mail_source": {"source": "mail", "available": True},
         }
         history = {
             "source": "apache-incubator-mail",
@@ -729,17 +727,36 @@ class ToolTests(unittest.TestCase):
             "votes": [{"thread_id": "vote-thread"}],
             "results": [{"thread_id": "result-thread"}],
         }
+        cached_mail = (
+            {"shipping": [{"id": "cached-message"}]},
+            {"source": "mail", "available": True, "message_count": 1, "podling_count": 1},
+        )
         with mock.patch.object(tools, "build_records", return_value=data):
-            with mock.patch.object(tools, "load_podling_release_vote_history", return_value=history) as load_history:
-                payload = tools.tool_release_vote_evidence(
-                    {
-                        "podling": "Shipping",
-                        "mail_api_base": "https://example.test/api",
-                        "mail_timespan": "lte=6M",
-                        "limit": 5,
-                    }
-                )
+            with mock.patch.object(
+                tools,
+                "load_incubator_general_mail",
+                return_value=cached_mail,
+            ) as load_cached_mail:
+                with mock.patch.object(
+                    tools,
+                    "load_podling_release_vote_history",
+                    return_value=history,
+                ) as load_history:
+                    payload = tools.tool_release_vote_evidence(
+                        {
+                            "podling": "Shipping",
+                            "mail_api_base": "https://example.test/api",
+                            "mail_timespan": "lte=6M",
+                            "limit": 5,
+                        }
+                    )
 
+        load_cached_mail.assert_called_once_with(
+            mail_source=None,
+            podlings=[record.podling],
+            mail_api_base="https://example.test/api",
+            allow_live_fallback=False,
+        )
         load_history.assert_called_once_with(
             "Shipping",
             mail_api_base="https://example.test/api",
@@ -750,6 +767,7 @@ class ToolTests(unittest.TestCase):
         self.assertEqual(payload["observed"]["vote_count"], 1)
         self.assertEqual(payload["observed"]["result_count"], 1)
         self.assertEqual(payload["observed"]["cached_general_mail_matches"], 1)
+        self.assertEqual(payload["mail_source"]["source"], "mail")
         self.assertTrue(payload["release_visibility_signals"])
         assert_explainability(self, payload["explainability"])
 
