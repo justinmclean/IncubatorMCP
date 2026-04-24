@@ -1150,6 +1150,89 @@ class ToolTests(unittest.TestCase):
             ["low_observed_mentor_signoff"],
         )
 
+    def test_cross_source_mismatches_surfaces_report_vs_health_conflicts(self) -> None:
+        record = OversightRecord(
+            podling={"name": "Mismatch", "status": "current", "mentors": ["A", "B"], "startdate": "2024-01-01"},
+            report_summary={
+                "latest_metrics": {
+                    "3m": {"commits": 30, "unique_committers": 4, "unique_authors": 5, "releases": 0},
+                    "12m": {"releases": 0, "median_gap_days": 220.0},
+                }
+            },
+            preferred_window="3m",
+            preferred_metrics={"commits": 30, "unique_committers": 4, "unique_authors": 5, "releases": 0},
+            reporting_window="12m",
+            reporting_metrics={"reports_count": 1, "avg_mentor_signoffs": 2.5},
+            as_of_date="2026-04-18",
+            incubator_reports=[
+                {
+                    "report_id": "2026-04",
+                    "report_period": "2026-04",
+                    "issues": [],
+                    "observed_mentor_signoff_count": 1,
+                    "last_release": "0.8.0",
+                }
+            ],
+        )
+        data = {
+            "records": [record],
+            "podlings_source": {"source": "podlings.xml"},
+            "health_source": {"reports_dir": "reports"},
+            "report_source": {"source": "report-cache", "available": True},
+            "mail_source": {"source": "mail-cache", "available": True},
+        }
+        with mock.patch.object(tools, "build_records", return_value=data):
+            payload = tools.tool_cross_source_mismatches({})
+
+        self.assertEqual(payload["generated_for"], "cross_source_mismatches")
+        self.assertEqual(payload["items"][0]["podling"], "Mismatch")
+        self.assertEqual(payload["items"][0]["severity"], "high")
+        self.assertEqual(
+            [mismatch["signal"] for mismatch in payload["items"][0]["mismatches"]],
+            [
+                "report_release_visibility_mismatch",
+                "quiet_report_high_risk_mismatch",
+                "latest_signoff_drop_vs_average",
+            ],
+        )
+        assert_explainability(self, payload["items"][0]["explainability"])
+
+    def test_cross_source_mismatches_can_filter_signal_types(self) -> None:
+        record = OversightRecord(
+            podling={"name": "Mismatch", "status": "current", "mentors": ["A", "B"], "startdate": "2024-01-01"},
+            report_summary={"latest_metrics": {"3m": {"releases": 0}, "12m": {"releases": 0}}},
+            preferred_window="3m",
+            preferred_metrics={"commits": 30, "unique_committers": 4, "unique_authors": 5, "releases": 0},
+            reporting_window="12m",
+            reporting_metrics={"reports_count": 1, "avg_mentor_signoffs": 2.5},
+            as_of_date="2026-04-18",
+            incubator_reports=[
+                {
+                    "report_id": "2026-04",
+                    "report_period": "2026-04",
+                    "issues": [],
+                    "observed_mentor_signoff_count": 1,
+                }
+            ],
+        )
+        data = {
+            "records": [record],
+            "podlings_source": {"source": "podlings.xml"},
+            "health_source": {"reports_dir": "reports"},
+            "report_source": {"source": "report-cache", "available": True},
+            "mail_source": {"source": "mail-cache", "available": True},
+        }
+        with mock.patch.object(tools, "build_records", return_value=data):
+            payload = tools.tool_cross_source_mismatches(
+                {"include_signals": ["latest_signoff_drop_vs_average"], "limit": 1}
+            )
+
+        self.assertEqual(payload["included_signals"], ["latest_signoff_drop_vs_average"])
+        self.assertEqual(
+            [mismatch["signal"] for mismatch in payload["items"][0]["mismatches"]],
+            ["latest_signoff_drop_vs_average"],
+        )
+
     def test_stalled_podlings_require_all_stall_conditions(self) -> None:
         stalled = OversightRecord(
             podling={"name": "Stalled", "status": "current", "mentors": ["A", "B"], "startdate": "2024-01-01"},

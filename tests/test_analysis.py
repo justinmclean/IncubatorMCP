@@ -6,6 +6,7 @@ from ipmc.analysis import (
     Signal,
     community_pattern,
     confidence_for_record,
+    cross_source_mismatches,
     evaluate_record,
     readiness_assessment,
     report_narrative_signals,
@@ -289,6 +290,48 @@ class AnalysisTests(unittest.TestCase):
         )
         repeated = next(signal for signal in signals if signal["signal"] == "recurring_reported_issue")
         self.assertEqual(repeated["current_value"][0]["issue"], "Need more community review")
+
+    def test_cross_source_mismatches_detect_quiet_report_and_signoff_drop(self) -> None:
+        record = make_record(
+            startdate="2024-01-01",
+            metrics={
+                "commits": 30,
+                "unique_committers": 4,
+                "unique_authors": 5,
+                "releases": 0,
+                "trends": {},
+            },
+            twelve_month_metrics={
+                "commits": 90,
+                "unique_committers": 5,
+                "unique_authors": 6,
+                "releases": 0,
+                "median_gap_days": 220.0,
+                "trends": {},
+            },
+        )
+        record.reporting_metrics = {"reports_count": 1, "avg_mentor_signoffs": 2.5}
+        record.incubator_reports = [
+            {
+                "report_id": "2026-04",
+                "report_period": "2026-04",
+                "issues": [],
+                "observed_mentor_signoff_count": 1,
+                "last_release": "0.9.0",
+            }
+        ]
+
+        mismatches = cross_source_mismatches(record)
+        mismatch_names = {mismatch["signal"] for mismatch in mismatches}
+
+        self.assertEqual(
+            mismatch_names,
+            {
+                "report_release_visibility_mismatch",
+                "quiet_report_high_risk_mismatch",
+                "latest_signoff_drop_vs_average",
+            },
+        )
 
     def test_evaluate_record_softens_signoff_signal_for_mature_podlings(self) -> None:
         record = make_record(

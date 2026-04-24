@@ -998,3 +998,97 @@ def report_narrative_signals(record: OversightRecord) -> list[dict[str, Any]]:
         )
 
     return signals
+
+
+def cross_source_mismatches(record: OversightRecord) -> list[dict[str, Any]]:
+    """Return concrete mismatches between report narrative and health-derived evidence."""
+    if not record.incubator_reports:
+        return []
+
+    latest_report = record.incubator_reports[-1]
+    latest_period = latest_report.get("report_period")
+    latest_report_id = latest_report.get("report_id")
+    latest_issues = [str(issue).strip() for issue in latest_report.get("issues") or [] if str(issue).strip()]
+    release_signals = release_visibility_signals(record)
+    evaluation = evaluate_record(record)
+    mismatches: list[dict[str, Any]] = []
+
+    last_release = str(latest_report.get("last_release") or "").strip()
+    if last_release and any(signal["signal"] == "no_releases_12m" for signal in release_signals):
+        mismatches.append(
+            {
+                "signal": "report_release_visibility_mismatch",
+                "severity": "medium",
+                "report_period": latest_period,
+                "report_id": latest_report_id,
+                "current_value": {
+                    "last_release": last_release,
+                    "release_visibility_signals": [signal["signal"] for signal in release_signals],
+                },
+                "reason": (
+                    "The most recent cached Incubator report mentions a last release, "
+                    "but health data shows no releases in the 12-month window."
+                ),
+            }
+        )
+
+    high_health_signals = [
+        signal
+        for signal in evaluation["signals"]
+        if signal.source == "apache-health" and severity_at_least(signal.severity, "high")
+    ]
+    high_release_signals = [signal for signal in release_signals if severity_at_least(str(signal["severity"]), "high")]
+    if not latest_issues and (high_health_signals or high_release_signals):
+        health_signal_names = [signal.signal for signal in high_health_signals]
+        release_signal_names = [str(signal["signal"]) for signal in high_release_signals]
+        mismatch_severity = "high"
+        if health_signal_names:
+            mismatch_severity = _highest_health_signal_severity(high_health_signals)
+        mismatches.append(
+            {
+                "signal": "quiet_report_high_risk_mismatch",
+                "severity": mismatch_severity,
+                "report_period": latest_period,
+                "report_id": latest_report_id,
+                "current_value": {
+                    "latest_reported_issues": latest_issues,
+                    "health_signals": health_signal_names,
+                    "release_visibility_signals": release_signal_names,
+                },
+                "reason": (
+                    "The most recent cached Incubator report lists no explicit issues, "
+                    "but current health or release evidence still shows elevated concerns."
+                ),
+            }
+        )
+
+    observed_signoffs = latest_report.get("observed_mentor_signoff_count")
+    reporting_signoff_average = _metric(record.reporting_metrics, "avg_mentor_signoffs")
+    if (
+        isinstance(observed_signoffs, int | float)
+        and observed_signoffs < 2
+        and isinstance(reporting_signoff_average, int | float)
+        and reporting_signoff_average >= 2
+    ):
+        mismatches.append(
+            {
+                "signal": "latest_signoff_drop_vs_average",
+                "severity": "medium",
+                "report_period": latest_period,
+                "report_id": latest_report_id,
+                "current_value": {
+                    "observed_mentor_signoff_count": observed_signoffs,
+                    "avg_mentor_signoffs": reporting_signoff_average,
+                },
+                "reason": (
+                    "The latest cached Incubator report shows low observed mentor sign-off, "
+                    "but the rolling health average remains at or above the usual expectation."
+                ),
+            }
+        )
+
+    return mismatches
+
+
+def _highest_health_signal_severity(signals: list[Signal]) -> str:
+    return max(signals, key=lambda signal: severity_value(signal.severity)).severity

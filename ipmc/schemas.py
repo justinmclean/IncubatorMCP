@@ -269,6 +269,26 @@ def report_narrative_signals_properties() -> dict[str, Any]:
     }
 
 
+def cross_source_mismatches_properties() -> dict[str, Any]:
+    return {
+        **base_properties(),
+        "podling": PODLING_PROPERTY,
+        "limit": LIMIT_PROPERTY,
+        "include_signals": {
+            "type": "array",
+            "description": "Optional cross-source mismatch filters",
+            "items": {
+                "type": "string",
+                "enum": [
+                    "report_release_visibility_mismatch",
+                    "quiet_report_high_risk_mismatch",
+                    "latest_signoff_drop_vs_average",
+                ],
+            },
+        },
+    }
+
+
 def stalled_podlings_properties() -> dict[str, Any]:
     return {
         **base_properties(),

@@ -7,6 +7,7 @@ from typing import Any
 from . import schemas
 from .analysis import (
     confidence_for_record,
+    cross_source_mismatches,
     evaluate_record,
     readiness_assessment,
     recent_change_events,
@@ -85,6 +86,11 @@ REPORT_NARRATIVE_SIGNALS = {
     "recurring_reported_issue",
     "low_observed_mentor_signoff",
     "report_release_visibility_mismatch",
+}
+CROSS_SOURCE_MISMATCH_SIGNALS = {
+    "report_release_visibility_mismatch",
+    "quiet_report_high_risk_mismatch",
+    "latest_signoff_drop_vs_average",
 }
 
 
@@ -1233,6 +1239,48 @@ def tool_report_narrative_signals(arguments: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def tool_cross_source_mismatches(arguments: dict[str, Any]) -> dict[str, Any]:
+    sources, data, records, _ = _load_tool_records(arguments)
+    limit = optional_integer(arguments, "limit") or 25
+    include_signals = optional_list_of_choices(arguments, "include_signals", CROSS_SOURCE_MISMATCH_SIGNALS)
+
+    items = []
+    for record in records:
+        mismatches = cross_source_mismatches(record)
+        if include_signals:
+            mismatches = [mismatch for mismatch in mismatches if mismatch["signal"] in include_signals]
+        if not mismatches:
+            continue
+        latest_report_period = record.incubator_reports[-1].get("report_period") if record.incubator_reports else None
+        reasoning = [str(mismatch["reason"]) for mismatch in mismatches]
+        items.append(
+            {
+                "podling": record.name,
+                "severity": _highest_severity(mismatches),
+                "latest_report_period": latest_report_period,
+                "report_entry_count": len(record.incubator_reports),
+                "mismatches": mismatches,
+                "summary": mismatches[0]["reason"],
+                "recommended_ipmc_action": (
+                    "Review the latest report narrative against current health "
+                    "and release evidence before drawing conclusions."
+                ),
+                "explainability": _explainability(record, reasoning, confidence=confidence_for_record(record)),
+            }
+        )
+
+    return {
+        **_source_context(data, generated_for="cross_source_mismatches"),
+        "as_of_date": sources["as_of_date"],
+        "included_signals": include_signals,
+        "items": _limit_sorted_items(
+            items,
+            limit=limit,
+            sort_key=lambda item: (-severity_value(str(item["severity"])), item["podling"].casefold()),
+        ),
+    }
+
+
 def tool_stalled_podlings(arguments: dict[str, Any]) -> dict[str, Any]:
     sources, data, records, _ = _load_tool_records(arguments)
     limit = optional_integer(arguments, "limit") or 25
@@ -1567,6 +1615,13 @@ TOOLS: dict[str, dict[str, Any]] = {
         ),
         handler=tool_report_narrative_signals,
         properties=schemas.report_narrative_signals_properties(),
+    ),
+    "cross_source_mismatches": schemas.tool_definition(
+        description=(
+            "Return concrete mismatches between cached report narrative and current health or release evidence."
+        ),
+        handler=tool_cross_source_mismatches,
+        properties=schemas.cross_source_mismatches_properties(),
     ),
     "stalled_podlings": schemas.tool_definition(
         description=("Return podlings that match the strict low-delivery, no-release stalled definition."),
