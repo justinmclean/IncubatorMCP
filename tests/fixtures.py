@@ -124,7 +124,7 @@ def make_fixture_sources() -> Iterator[FixtureSources]:
         (reports_dir / "Bravo.md").write_text(BRAVO_REPORT, encoding="utf-8")
         (reports_dir / "Delta.md").write_text(DELTA_REPORT, encoding="utf-8")
 
-        old_health_source = data._CONFIGURED_HEALTH_SOURCE
+        configured_defaults = data.configured_defaults_snapshot()
         data.configure_defaults(health_source=str(reports_dir))
         try:
             yield FixtureSources(
@@ -132,7 +132,7 @@ def make_fixture_sources() -> Iterator[FixtureSources]:
                 health_source=str(reports_dir),
             )
         finally:
-            data._CONFIGURED_HEALTH_SOURCE = old_health_source
+            data.restore_configured_defaults(configured_defaults)
 
 
 FAKE_PODLINGS_DATA = dedent(

@@ -8,6 +8,12 @@ from tests.fixtures import make_fixture_sources
 
 
 class DataTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._configured_defaults = data.configured_defaults_snapshot()
+
+    def tearDown(self) -> None:
+        data.restore_configured_defaults(self._configured_defaults)
+
     def test_parse_iso_date_and_months_since(self) -> None:
         self.assertIsNone(data.parse_iso_date(None))
         self.assertIsNone(data.parse_iso_date("bad-date"))
@@ -88,11 +94,8 @@ class DataTests(unittest.TestCase):
         module.reports_overview.return_value = {"reports_dir": "/tmp/reports", "report_count": 0}
         module.load_reports.return_value = []
         data.configure_defaults(health_source="/tmp/reports")
-        try:
-            with mock.patch.object(data, "health_parser", module):
-                summaries, overview = data.load_health_summaries()
-        finally:
-            data._CONFIGURED_HEALTH_SOURCE = None
+        with mock.patch.object(data, "health_parser", module):
+            summaries, overview = data.load_health_summaries()
 
         self.assertEqual(summaries, {})
         self.assertEqual(overview["reports_dir"], "/tmp/reports")

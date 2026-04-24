@@ -21,26 +21,14 @@ def assert_explainability(testcase: unittest.TestCase, payload: dict) -> None:
 
 class ToolTests(unittest.TestCase):
     def setUp(self) -> None:
-        self._configured_sources = {
-            "podlings_source": tools.source_defaults()["configured"]["podlings_source"],
-            "health_source": tools.source_defaults()["configured"]["health_source"],
-            "report_source": tools.source_defaults()["configured"]["report_source"],
-            "mail_source": tools.source_defaults()["configured"]["mail_source"],
-            "mail_api_base": tools.source_defaults()["configured"]["mail_api_base"],
-            "release_dist_base": tools.source_defaults()["configured"]["release_dist_base"],
-            "release_archive_base": tools.source_defaults()["configured"]["release_archive_base"],
-        }
+        from ipmc import data
+
+        self._configured_defaults = data.configured_defaults_snapshot()
 
     def tearDown(self) -> None:
         from ipmc import data
 
-        data._CONFIGURED_PODLINGS_SOURCE = self._configured_sources["podlings_source"]
-        data._CONFIGURED_HEALTH_SOURCE = self._configured_sources["health_source"]
-        data._CONFIGURED_REPORT_SOURCE = self._configured_sources["report_source"]
-        data._CONFIGURED_MAIL_SOURCE = self._configured_sources["mail_source"]
-        data._CONFIGURED_MAIL_API_BASE = self._configured_sources["mail_api_base"]
-        data._CONFIGURED_RELEASE_DIST_BASE = self._configured_sources["release_dist_base"]
-        data._CONFIGURED_RELEASE_ARCHIVE_BASE = self._configured_sources["release_archive_base"]
+        data.restore_configured_defaults(self._configured_defaults)
 
     def test_validation_helpers_reject_bad_values(self) -> None:
         with self.assertRaises(ValueError):

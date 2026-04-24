@@ -42,13 +42,20 @@ MAIL_SOURCE_ENV = "IPMC_MAIL_SOURCE"
 MAIL_API_BASE_ENV = "IPMC_MAIL_API_BASE"
 RELEASE_DIST_BASE_ENV = "IPMC_RELEASE_DIST_BASE"
 RELEASE_ARCHIVE_BASE_ENV = "IPMC_RELEASE_ARCHIVE_BASE"
-_CONFIGURED_PODLINGS_SOURCE: str | None = None
-_CONFIGURED_HEALTH_SOURCE: str | None = None
-_CONFIGURED_REPORT_SOURCE: str | None = None
-_CONFIGURED_MAIL_SOURCE: str | None = None
-_CONFIGURED_MAIL_API_BASE: str | None = None
-_CONFIGURED_RELEASE_DIST_BASE: str | None = None
-_CONFIGURED_RELEASE_ARCHIVE_BASE: str | None = None
+
+
+@dataclass
+class SourceDefaults:
+    podlings_source: str | None = None
+    health_source: str | None = None
+    report_source: str | None = None
+    mail_source: str | None = None
+    mail_api_base: str | None = None
+    release_dist_base: str | None = None
+    release_archive_base: str | None = None
+
+
+_CONFIGURED_DEFAULTS = SourceDefaults()
 
 PREFERRED_WINDOW_ORDER = ("3m", "6m", "12m", "to-date")
 REPORTING_WINDOW_ORDER = ("12m", "6m", "to-date", "3m")
@@ -75,28 +82,33 @@ def configure_defaults(
     release_dist_base: str | None = None,
     release_archive_base: str | None = None,
 ) -> None:
-    global _CONFIGURED_HEALTH_SOURCE, _CONFIGURED_MAIL_API_BASE, _CONFIGURED_MAIL_SOURCE, _CONFIGURED_PODLINGS_SOURCE
-    global _CONFIGURED_RELEASE_ARCHIVE_BASE, _CONFIGURED_RELEASE_DIST_BASE
-    global _CONFIGURED_REPORT_SOURCE
-
     resolved_podlings_source = podlings_source or podlings_repo
     resolved_health_source = health_source or health_repo
     resolved_report_source = report_source or reports_source
     resolved_mail_source = mail_source or mail_cache_dir
     if resolved_podlings_source:
-        _CONFIGURED_PODLINGS_SOURCE = resolved_podlings_source
+        _CONFIGURED_DEFAULTS.podlings_source = resolved_podlings_source
     if resolved_health_source:
-        _CONFIGURED_HEALTH_SOURCE = resolved_health_source
+        _CONFIGURED_DEFAULTS.health_source = resolved_health_source
     if resolved_report_source:
-        _CONFIGURED_REPORT_SOURCE = resolved_report_source
+        _CONFIGURED_DEFAULTS.report_source = resolved_report_source
     if resolved_mail_source:
-        _CONFIGURED_MAIL_SOURCE = resolved_mail_source
+        _CONFIGURED_DEFAULTS.mail_source = resolved_mail_source
     if mail_api_base:
-        _CONFIGURED_MAIL_API_BASE = mail_api_base
+        _CONFIGURED_DEFAULTS.mail_api_base = mail_api_base
     if release_dist_base:
-        _CONFIGURED_RELEASE_DIST_BASE = release_dist_base
+        _CONFIGURED_DEFAULTS.release_dist_base = release_dist_base
     if release_archive_base:
-        _CONFIGURED_RELEASE_ARCHIVE_BASE = release_archive_base
+        _CONFIGURED_DEFAULTS.release_archive_base = release_archive_base
+
+
+def configured_defaults_snapshot() -> SourceDefaults:
+    return SourceDefaults(**asdict(_CONFIGURED_DEFAULTS))
+
+
+def restore_configured_defaults(snapshot: SourceDefaults) -> None:
+    global _CONFIGURED_DEFAULTS
+    _CONFIGURED_DEFAULTS = SourceDefaults(**asdict(snapshot))
 
 
 def _env_default(name: str) -> str | None:
@@ -254,7 +266,7 @@ def _with_fallback_trends(summary: dict[str, Any], raw_text: str | None) -> dict
 def load_podlings(podlings_source: str | None = None) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     source = (
         podlings_source
-        or _CONFIGURED_PODLINGS_SOURCE
+        or _CONFIGURED_DEFAULTS.podlings_source
         or _env_default(PODLINGS_SOURCE_ENV)
         or podlings_data.DEFAULT_SOURCE
     )
@@ -263,7 +275,9 @@ def load_podlings(podlings_source: str | None = None) -> tuple[list[dict[str, An
 
 
 def load_health_summaries(health_source: str | None = None) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:
-    reports_dir = health_source or _CONFIGURED_HEALTH_SOURCE or _env_default(HEALTH_SOURCE_ENV) or DEFAULT_HEALTH_SOURCE
+    reports_dir = (
+        health_source or _CONFIGURED_DEFAULTS.health_source or _env_default(HEALTH_SOURCE_ENV) or DEFAULT_HEALTH_SOURCE
+    )
     overview = health_parser.reports_overview(reports_dir)
     reports = health_parser.load_reports(reports_dir)
     summaries = {
@@ -277,23 +291,25 @@ def load_health_summaries(health_source: str | None = None) -> tuple[dict[str, d
 
 
 def _resolved_report_source(report_source: str | None = None) -> tuple[str, bool]:
-    explicit = report_source or _CONFIGURED_REPORT_SOURCE or _env_default(REPORT_SOURCE_ENV)
+    explicit = report_source or _CONFIGURED_DEFAULTS.report_source or _env_default(REPORT_SOURCE_ENV)
     return explicit or DEFAULT_REPORT_SOURCE, explicit is not None
 
 
 def _resolved_mail_source(mail_source: str | None = None) -> tuple[str, bool]:
-    explicit = mail_source or _CONFIGURED_MAIL_SOURCE or _env_default(MAIL_SOURCE_ENV)
+    explicit = mail_source or _CONFIGURED_DEFAULTS.mail_source or _env_default(MAIL_SOURCE_ENV)
     return explicit or DEFAULT_MAIL_SOURCE, explicit is not None
 
 
 def _resolved_mail_api_base(mail_api_base: str | None = None) -> str:
-    return mail_api_base or _CONFIGURED_MAIL_API_BASE or _env_default(MAIL_API_BASE_ENV) or DEFAULT_MAIL_API_BASE
+    return (
+        mail_api_base or _CONFIGURED_DEFAULTS.mail_api_base or _env_default(MAIL_API_BASE_ENV) or DEFAULT_MAIL_API_BASE
+    )
 
 
 def _resolved_release_dist_base(release_dist_base: str | None = None) -> str:
     return (
         release_dist_base
-        or _CONFIGURED_RELEASE_DIST_BASE
+        or _CONFIGURED_DEFAULTS.release_dist_base
         or _env_default(RELEASE_DIST_BASE_ENV)
         or DEFAULT_RELEASE_DIST_BASE
     )
@@ -302,7 +318,7 @@ def _resolved_release_dist_base(release_dist_base: str | None = None) -> str:
 def _resolved_release_archive_base(release_archive_base: str | None = None) -> str:
     return (
         release_archive_base
-        or _CONFIGURED_RELEASE_ARCHIVE_BASE
+        or _CONFIGURED_DEFAULTS.release_archive_base
         or _env_default(RELEASE_ARCHIVE_BASE_ENV)
         or DEFAULT_RELEASE_ARCHIVE_BASE
     )
@@ -312,20 +328,16 @@ def source_defaults() -> dict[str, Any]:
     report_source, report_explicit = _resolved_report_source()
     mail_source, mail_explicit = _resolved_mail_source()
     return {
-        "configured": {
-            "podlings_source": _CONFIGURED_PODLINGS_SOURCE,
-            "health_source": _CONFIGURED_HEALTH_SOURCE,
-            "report_source": _CONFIGURED_REPORT_SOURCE,
-            "mail_source": _CONFIGURED_MAIL_SOURCE,
-            "mail_api_base": _CONFIGURED_MAIL_API_BASE,
-            "release_dist_base": _CONFIGURED_RELEASE_DIST_BASE,
-            "release_archive_base": _CONFIGURED_RELEASE_ARCHIVE_BASE,
-        },
+        "configured": asdict(_CONFIGURED_DEFAULTS),
         "effective": {
-            "podlings_source": _CONFIGURED_PODLINGS_SOURCE
-            or _env_default(PODLINGS_SOURCE_ENV)
-            or podlings_data.DEFAULT_SOURCE,
-            "health_source": _CONFIGURED_HEALTH_SOURCE or _env_default(HEALTH_SOURCE_ENV) or DEFAULT_HEALTH_SOURCE,
+            "podlings_source": (
+                _CONFIGURED_DEFAULTS.podlings_source
+                or _env_default(PODLINGS_SOURCE_ENV)
+                or podlings_data.DEFAULT_SOURCE
+            ),
+            "health_source": _CONFIGURED_DEFAULTS.health_source
+            or _env_default(HEALTH_SOURCE_ENV)
+            or DEFAULT_HEALTH_SOURCE,
             "report_source": report_source,
             "report_source_explicit": report_explicit,
             "mail_source": mail_source,
