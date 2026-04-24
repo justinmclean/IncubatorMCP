@@ -1218,13 +1218,102 @@ def tool_stalled_podlings(arguments: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _grouping_bucket(
+    *,
+    names: list[str],
+    include_examples: bool,
+) -> dict[str, Any]:
+    bucket: dict[str, Any] = {"count": len(names)}
+    if include_examples:
+        bucket["example_podlings"] = names[:5]
+    return bucket
+
+
+def _community_summary_grouping(
+    records: list[Any],
+    evaluations: dict[str, dict[str, Any]],
+    *,
+    group_by: str,
+    include_examples: bool,
+) -> dict[str, Any] | None:
+    if group_by == "none":
+        return None
+
+    if group_by == "risk_band":
+        bands: dict[str, list[str]] = {"critical": [], "high": [], "medium": [], "low": []}
+        for record in records:
+            bands[evaluations[record.name]["severity"]].append(record.name)
+        return {
+            "group_by": group_by,
+            "buckets": {
+                band: _grouping_bucket(names=sorted(names), include_examples=include_examples)
+                for band, names in bands.items()
+            },
+        }
+
+    if group_by == "mentor_load":
+        mentor_buckets: dict[str, list[str]] = {
+            "no_mentors": [],
+            "single_mentor": [],
+            "two_mentors": [],
+            "three_or_more_mentors": [],
+        }
+        for record in records:
+            if record.mentor_count == 0:
+                mentor_buckets["no_mentors"].append(record.name)
+            elif record.mentor_count == 1:
+                mentor_buckets["single_mentor"].append(record.name)
+            elif record.mentor_count == 2:
+                mentor_buckets["two_mentors"].append(record.name)
+            else:
+                mentor_buckets["three_or_more_mentors"].append(record.name)
+        return {
+            "group_by": group_by,
+            "buckets": {
+                name: _grouping_bucket(names=sorted(names), include_examples=include_examples)
+                for name, names in mentor_buckets.items()
+            },
+        }
+
+    if group_by == "age_band":
+        age_buckets: dict[str, list[str]] = {
+            "under_12m": [],
+            "12_to_35m": [],
+            "36m_plus": [],
+            "unknown_age": [],
+        }
+        for record in records:
+            months = record.months_in_incubation
+            if months is None:
+                age_buckets["unknown_age"].append(record.name)
+            elif months < 12:
+                age_buckets["under_12m"].append(record.name)
+            elif months < 36:
+                age_buckets["12_to_35m"].append(record.name)
+            else:
+                age_buckets["36m_plus"].append(record.name)
+        return {
+            "group_by": group_by,
+            "buckets": {
+                name: _grouping_bucket(names=sorted(names), include_examples=include_examples)
+                for name, names in age_buckets.items()
+            },
+        }
+
+    return None
+
+
 def tool_community_health_summary(arguments: dict[str, Any]) -> dict[str, Any]:
     sources = _resolve_sources(arguments)
     scope = optional_choice(arguments, "scope", SCOPES) or "all_podlings"
     group_by = optional_choice(arguments, "group_by", GROUPINGS) or "risk_band"
     include_examples = optional_boolean(arguments, "include_examples", True)
 
-    data = build_records(**sources, include_mail=False)
+    data = build_records(
+        **sources,
+        include_mail=False,
+        include_non_current=scope == "all_podlings",
+    )
     records = data["records"]
     if scope == "reporting_podlings":
         records = [record for record in records if record.report_summary is not None]
@@ -1238,9 +1327,11 @@ def tool_community_health_summary(arguments: dict[str, Any]) -> dict[str, Any]:
     strong_examples = []
     weak_examples = []
     mentor_risk = []
+    evaluations: dict[str, dict[str, Any]] = {}
 
     for record in records:
         evaluation = evaluate_record(record)
+        evaluations[record.name] = evaluation
         metrics = record.preferred_metrics or {}
         if evaluation["severity"] in {"high", "critical"}:
             watchlist_overlap.append(record.name)
@@ -1297,24 +1388,40 @@ def tool_community_health_summary(arguments: dict[str, Any]) -> dict[str, Any]:
         f"Across {len(records)} podling(s), the main IPMC themes are community resilience, "
         "reporting reliability, and mentor coverage."
     )
+    if scope == "all_podlings":
+        overall_summary += " This scope includes non-current podlings when they are present in the source data."
+    elif scope == "reporting_podlings":
+        overall_summary += " This scope is limited to podlings with apache-health report data."
+
     if group_by == "mentor_load":
         overall_summary += " Results are especially useful for reviewing mentoring capacity."
     elif group_by == "age_band":
         overall_summary += " Older podlings may warrant additional graduation or intervention discussion."
+    elif group_by == "risk_band":
+        overall_summary += " Results are also grouped by evaluated risk severity."
+
+    grouping = _community_summary_grouping(
+        records,
+        evaluations,
+        group_by=group_by,
+        include_examples=bool(include_examples),
+    )
 
     return {
         "podlings_source": data["podlings_source"],
         "health_source": data["health_source"],
         "report_source": _report_source_meta(data),
         "mail_source": _mail_source_meta(data),
-        "generated_at_scope": group_by,
+        "generated_for": "community_health_summary",
         "scope": scope,
+        "group_by": group_by,
         "overall_summary": overall_summary,
         "strong_patterns": strong_patterns,
         "risk_themes": risk_themes,
         "improving_podlings": sorted(improving_podlings),
         "watchlist_overlap": sorted(watchlist_overlap),
         "mentoring_capacity_observations": mentoring_capacity_observations,
+        "grouping": grouping,
         "recommended_ipmc_focus": [
             "Review high-risk podlings with missing reports, thin mentor coverage, or weak activity.",
             "Use podling briefs and readiness checks to decide where graduation conversations are timely.",

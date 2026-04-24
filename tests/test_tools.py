@@ -333,6 +333,9 @@ class ToolTests(unittest.TestCase):
             )
 
         self.assertEqual(payload["scope"], "reporting_podlings")
+        self.assertEqual(payload["group_by"], "risk_band")
+        self.assertEqual(payload["generated_for"], "community_health_summary")
+        self.assertEqual(payload["grouping"]["group_by"], "risk_band")
         self.assertTrue(payload["risk_themes"])
         assert_explainability(self, payload["explainability"])
         assert_explainability(self, payload["risk_themes"][0]["explainability"])
@@ -359,7 +362,10 @@ class ToolTests(unittest.TestCase):
 
         self.assertIn("mentoring capacity", mentor_load["overall_summary"])
         self.assertIn("Older podlings", age_band["overall_summary"])
+        self.assertEqual(mentor_load["grouping"]["group_by"], "mentor_load")
+        self.assertEqual(age_band["grouping"]["group_by"], "age_band")
         self.assertTrue(all("example_podlings" not in theme for theme in mentor_load["risk_themes"]))
+        self.assertTrue(all("example_podlings" not in bucket for bucket in mentor_load["grouping"]["buckets"].values()))
 
     def test_community_health_summary_handles_no_risk_or_strength_patterns(self) -> None:
         record = OversightRecord(
@@ -393,6 +399,61 @@ class ToolTests(unittest.TestCase):
 
         self.assertEqual(payload["strong_patterns"], [])
         self.assertEqual(payload["risk_themes"], [])
+
+    def test_community_health_summary_scope_controls_record_set(self) -> None:
+        current = OversightRecord(
+            podling={"name": "Current", "status": "current", "mentors": ["A", "B"], "startdate": "2026-01-01"},
+            report_summary={"latest_metrics": {"3m": {}}},
+            preferred_window="3m",
+            preferred_metrics={"commits": 5, "unique_committers": 2, "releases": 0, "trends": {}},
+            reporting_window="12m",
+            reporting_metrics={"reports_count": 1, "avg_mentor_signoffs": 2.0},
+            as_of_date="2026-04-18",
+        )
+        retired = OversightRecord(
+            podling={"name": "Retired", "status": "retired", "mentors": ["A"], "startdate": "2024-01-01"},
+            report_summary=None,
+            preferred_window=None,
+            preferred_metrics=None,
+            reporting_window=None,
+            reporting_metrics=None,
+            as_of_date="2026-04-18",
+        )
+        data = {
+            "records": [current, retired],
+            "podlings_source": {"source": "podlings.xml"},
+            "health_source": {"reports_dir": "reports"},
+        }
+        with mock.patch.object(tools, "build_records", return_value=data) as build:
+            tools.tool_community_health_summary({"scope": "active_podlings"})
+            all_payload = tools.tool_community_health_summary({"scope": "all_podlings"})
+            reporting_payload = tools.tool_community_health_summary({"scope": "reporting_podlings"})
+
+        self.assertFalse(build.call_args_list[0].kwargs["include_non_current"])
+        self.assertTrue(build.call_args_list[1].kwargs["include_non_current"])
+        self.assertTrue(any(name == "Retired" for name in all_payload["watchlist_overlap"]))
+        self.assertFalse(any(name == "Retired" for name in reporting_payload["watchlist_overlap"]))
+
+    def test_community_health_summary_none_grouping_disables_bucket_summary(self) -> None:
+        record = OversightRecord(
+            podling={"name": "Steady", "status": "current", "mentors": ["A", "B"], "startdate": "2026-01-01"},
+            report_summary={"latest_metrics": {"3m": {}}},
+            preferred_window="3m",
+            preferred_metrics={"commits": 15, "unique_committers": 3, "releases": 1, "trends": {}},
+            reporting_window="12m",
+            reporting_metrics={"reports_count": 1, "avg_mentor_signoffs": 2.0},
+            as_of_date="2026-04-18",
+        )
+        data = {
+            "records": [record],
+            "podlings_source": {"source": "podlings.xml"},
+            "health_source": {"reports_dir": "reports"},
+        }
+        with mock.patch.object(tools, "build_records", return_value=data):
+            payload = tools.tool_community_health_summary({"group_by": "none"})
+
+        self.assertEqual(payload["group_by"], "none")
+        self.assertIsNone(payload["grouping"])
 
     def test_recent_changes_returns_only_delta_events(self) -> None:
         record = OversightRecord(
