@@ -46,6 +46,99 @@ class ToolTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             tools.optional_list_of_choices({"focus": ["missing"]}, "focus", tools.FOCUS_AREAS)
 
+    def test_source_context_includes_common_source_metadata(self) -> None:
+        data = {
+            "podlings_source": {"source": "podlings.xml"},
+            "health_source": {"source": "reports"},
+            "report_source": {"source": "report-cache"},
+            "mail_source": {"source": "mail-cache"},
+        }
+
+        context = tools._source_context(data, generated_for="recent_changes")
+
+        self.assertEqual(context["generated_for"], "recent_changes")
+        self.assertEqual(context["podlings_source"]["source"], "podlings.xml")
+        self.assertEqual(context["health_source"]["source"], "reports")
+        self.assertEqual(context["report_source"]["source"], "report-cache")
+        self.assertEqual(context["mail_source"]["source"], "mail-cache")
+
+    def test_load_tool_records_builds_and_filters_for_requested_podling(self) -> None:
+        alpha = OversightRecord(
+            podling={"name": "Alpha", "status": "current", "mentors": ["A"], "startdate": "2026-01-01"},
+            report_summary=None,
+            preferred_window=None,
+            preferred_metrics=None,
+            reporting_window=None,
+            reporting_metrics=None,
+            as_of_date="2026-04-18",
+        )
+        bravo = OversightRecord(
+            podling={"name": "Bravo", "status": "current", "mentors": ["B"], "startdate": "2026-01-01"},
+            report_summary=None,
+            preferred_window=None,
+            preferred_metrics=None,
+            reporting_window=None,
+            reporting_metrics=None,
+            as_of_date="2026-04-18",
+        )
+        built = {
+            "records": [alpha, bravo],
+            "podlings_source": {"source": "podlings.xml"},
+            "health_source": {"source": "reports"},
+            "report_source": {"source": "report-cache"},
+            "mail_source": {"source": "mail-cache"},
+        }
+
+        with mock.patch.object(tools, "build_records", return_value=built) as build:
+            sources, data, records, podling = tools._load_tool_records(
+                {"podling": "Bravo", "as_of_date": "2026-04-18"},
+                include_mail=True,
+                include_non_current=True,
+            )
+
+        build.assert_called_once_with(
+            podlings_source=None,
+            health_source=None,
+            report_source=None,
+            mail_source=None,
+            mail_api_base=None,
+            as_of_date="2026-04-18",
+            include_mail=True,
+            include_non_current=True,
+        )
+        self.assertEqual(sources["as_of_date"], "2026-04-18")
+        self.assertIs(data, built)
+        self.assertEqual(podling, "Bravo")
+        self.assertEqual([record.name for record in records], ["Bravo"])
+
+    def test_limit_sorted_items_sorts_then_applies_limit(self) -> None:
+        items = [
+            {"podling": "Zulu", "changes": [1]},
+            {"podling": "Alpha", "changes": [1, 2, 3]},
+            {"podling": "Bravo", "changes": [1, 2]},
+        ]
+
+        limited = tools._limit_sorted_items(
+            items,
+            limit=2,
+            sort_key=lambda item: (-len(item["changes"]), item["podling"].casefold()),
+        )
+
+        self.assertEqual([item["podling"] for item in limited], ["Alpha", "Bravo"])
+
+    def test_severity_helpers_sort_and_select_highest(self) -> None:
+        signals = [
+            {"podling": "Zulu", "severity": "medium"},
+            {"podling": "Alpha", "severity": "critical"},
+            {"podling": "Bravo", "severity": "high"},
+        ]
+
+        highest = tools._highest_severity(signals)
+        tools._sort_by_severity_then_podling(signals)
+
+        self.assertEqual(highest, "critical")
+        self.assertEqual([item["podling"] for item in signals], ["Alpha", "Bravo", "Zulu"])
+
     def test_configure_sources_sets_process_defaults_for_later_calls(self) -> None:
         with make_fixture_sources() as (podlings_source, health_source):
             configured = tools.tool_configure_sources(
