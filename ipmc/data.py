@@ -642,6 +642,7 @@ def build_records(
     as_of_date: str | None = None,
     include_non_current: bool = False,
     include_mail: bool = False,
+    requested_podling: str | None = None,
 ) -> dict[str, Any]:
     podlings, podlings_meta = load_podlings(podlings_source)
     summaries, health_meta = load_health_summaries(health_source)
@@ -657,19 +658,23 @@ def build_records(
         }
 
     records: list[OversightRecord] = []
+    requested_podling_name = requested_podling.strip() if requested_podling else None
+    requested_podling_key = requested_podling_name.casefold() if requested_podling_name else None
     for podling in podlings:
+        podling_name = str(podling.get("name", ""))
+        podling_key = podling_name.casefold()
         status = str(podling.get("status") or "unknown").lower()
-        if not include_non_current and status != "current":
+        if not include_non_current and status != "current" and podling_key != requested_podling_key:
             continue
-        summary = summaries.get(str(podling.get("name", "")).casefold())
+        summary = summaries.get(podling_key)
         preferred_window, preferred_metrics = _preferred_window(summary)
         reporting_window, reporting_metrics = _reporting_window(summary)
         records.append(
             OversightRecord(
                 podling=podling,
                 report_summary=summary,
-                incubator_reports=report_entries.get(str(podling.get("name", "")).casefold(), []),
-                incubator_general_mail=mail_entries.get(str(podling.get("name", "")).casefold(), []),
+                incubator_reports=report_entries.get(podling_key, []),
+                incubator_general_mail=mail_entries.get(podling_key, []),
                 preferred_window=preferred_window,
                 preferred_metrics=preferred_metrics,
                 reporting_window=reporting_window,
@@ -677,6 +682,33 @@ def build_records(
                 as_of_date=as_of_date,
             )
         )
+
+    record_names = {record.name.casefold() for record in records}
+    if requested_podling_key and requested_podling_key not in record_names:
+        summary = summaries.get(requested_podling_key)
+        incubator_reports = report_entries.get(requested_podling_key, [])
+        incubator_general_mail = mail_entries.get(requested_podling_key, [])
+        if summary is not None or incubator_reports or incubator_general_mail:
+            preferred_window, preferred_metrics = _preferred_window(summary)
+            reporting_window, reporting_metrics = _reporting_window(summary)
+            records.append(
+                OversightRecord(
+                    podling={
+                        "name": requested_podling_name,
+                        "status": "unknown",
+                        "mentors": [],
+                        "startdate": None,
+                    },
+                    report_summary=summary,
+                    incubator_reports=incubator_reports,
+                    incubator_general_mail=incubator_general_mail,
+                    preferred_window=preferred_window,
+                    preferred_metrics=preferred_metrics,
+                    reporting_window=reporting_window,
+                    reporting_metrics=reporting_metrics,
+                    as_of_date=as_of_date,
+                )
+            )
 
     return {
         "records": sorted(records, key=lambda item: item.name.casefold()),

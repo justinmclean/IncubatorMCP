@@ -258,14 +258,31 @@ def _load_tool_records(
     podling_key: str = "podling",
 ) -> tuple[dict[str, Any], dict[str, Any], list[Any], str | None]:
     sources = _resolve_sources(arguments)
+    podling = optional_string(arguments, podling_key)
     data = build_records(
         **sources,
         include_mail=include_mail,
         include_non_current=include_non_current,
+        requested_podling=podling,
     )
-    podling = optional_string(arguments, podling_key)
     records = _maybe_filter_podling(data["records"], podling)
     return sources, data, records, podling
+
+
+def _load_single_podling_record(
+    arguments: dict[str, Any],
+    *,
+    include_mail: bool = False,
+) -> tuple[dict[str, Any], dict[str, Any], Any]:
+    sources = _resolve_sources(arguments)
+    podling = require_string(arguments, "podling")
+    data = build_records(
+        **sources,
+        include_mail=include_mail,
+        requested_podling=podling,
+    )
+    record = _record_by_name(data["records"], podling)
+    return sources, data, record
 
 
 def _limit_sorted_items(
@@ -559,13 +576,10 @@ def tool_ipmc_watchlist(arguments: dict[str, Any]) -> dict[str, Any]:
 
 
 def tool_graduation_readiness(arguments: dict[str, Any]) -> dict[str, Any]:
-    sources = _resolve_sources(arguments)
-    podling = require_string(arguments, "podling")
+    _, data, record = _load_single_podling_record(arguments, include_mail=False)
     include_evidence = optional_boolean(arguments, "include_evidence", True)
     strict_mode = optional_boolean(arguments, "strict_mode", False) or False
 
-    data = build_records(**sources, include_mail=False)
-    record = _record_by_name(data["records"], podling)
     readiness = readiness_assessment(record, strict_mode=strict_mode)
     confidence = confidence_for_record(record)
     payload = {
@@ -603,13 +617,10 @@ def tool_graduation_readiness(arguments: dict[str, Any]) -> dict[str, Any]:
 
 
 def tool_podling_brief(arguments: dict[str, Any]) -> dict[str, Any]:
-    sources = _resolve_sources(arguments)
-    podling = require_string(arguments, "podling")
-    focus = optional_list_of_choices(arguments, "focus", FOCUS_AREAS) or []
     brief_format = optional_choice(arguments, "brief_format", BRIEF_FORMATS) or "summary"
+    focus = optional_list_of_choices(arguments, "focus", FOCUS_AREAS) or []
+    _, data, record = _load_single_podling_record(arguments, include_mail=False)
 
-    data = build_records(**sources, include_mail=False)
-    record = _record_by_name(data["records"], podling)
     evaluation = evaluate_record(record)
     readiness = readiness_assessment(record)
     metrics = record.preferred_metrics or {}
@@ -875,7 +886,7 @@ def tool_reporting_reliability(arguments: dict[str, Any]) -> dict[str, Any]:
         "reporting_data_unavailable",
     ]
 
-    data = build_records(**sources, include_mail=False)
+    data = build_records(**sources, include_mail=False, requested_podling=podling)
     records = _maybe_filter_podling(data["records"], podling)
     buckets: dict[str, list[dict[str, Any]]] = {category: [] for category in category_order}
 
@@ -970,14 +981,11 @@ def tool_release_visibility(arguments: dict[str, Any]) -> dict[str, Any]:
 
 
 def tool_release_vote_evidence(arguments: dict[str, Any]) -> dict[str, Any]:
-    sources = _resolve_sources(arguments)
-    podling = require_string(arguments, "podling")
+    sources, data, record = _load_single_podling_record(arguments, include_mail=False)
     mail_api_base = optional_string(arguments, "mail_api_base")
     mail_timespan = optional_string(arguments, "mail_timespan")
     limit = optional_integer(arguments, "limit") or 20
 
-    data = build_records(**sources, include_mail=False)
-    record = _record_by_name(data["records"], podling)
     cached_mail_entries, cached_mail_meta = load_incubator_general_mail(
         mail_source=sources["mail_source"],
         podlings=[record.podling],

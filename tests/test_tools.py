@@ -105,11 +105,50 @@ class ToolTests(unittest.TestCase):
             as_of_date="2026-04-18",
             include_mail=True,
             include_non_current=True,
+            requested_podling="Bravo",
         )
         self.assertEqual(sources["as_of_date"], "2026-04-18")
         self.assertIs(data, built)
         self.assertEqual(podling, "Bravo")
         self.assertEqual([record.name for record in records], ["Bravo"])
+
+    def test_load_single_podling_record_requests_targeted_fallback_data(self) -> None:
+        record = OversightRecord(
+            podling={"name": "Age", "status": "graduated", "mentors": [], "startdate": None},
+            report_summary=None,
+            preferred_window=None,
+            preferred_metrics=None,
+            reporting_window=None,
+            reporting_metrics=None,
+            as_of_date="2026-04-18",
+        )
+        built = {
+            "records": [record],
+            "podlings_source": {"source": "podlings.xml"},
+            "health_source": {"source": "reports"},
+            "report_source": {"source": "report-cache"},
+            "mail_source": {"source": "mail-cache"},
+        }
+
+        with mock.patch.object(tools, "build_records", return_value=built) as build:
+            sources, data, resolved = tools._load_single_podling_record(
+                {"podling": "AGE", "as_of_date": "2026-04-18"},
+                include_mail=False,
+            )
+
+        build.assert_called_once_with(
+            podlings_source=None,
+            health_source=None,
+            report_source=None,
+            mail_source=None,
+            mail_api_base=None,
+            as_of_date="2026-04-18",
+            include_mail=False,
+            requested_podling="AGE",
+        )
+        self.assertEqual(sources["as_of_date"], "2026-04-18")
+        self.assertIs(data, built)
+        self.assertEqual(resolved.name, "Age")
 
     def test_limit_sorted_items_sorts_then_applies_limit(self) -> None:
         items = [
@@ -312,6 +351,7 @@ class ToolTests(unittest.TestCase):
             mail_api_base=None,
             as_of_date="2026-04-18",
             include_mail=False,
+            requested_podling="Delta",
         )
 
     def test_podling_brief_contains_expected_sections(self) -> None:
@@ -1150,6 +1190,38 @@ class ToolTests(unittest.TestCase):
             ["low_observed_mentor_signoff"],
         )
 
+    def test_report_narrative_signals_includes_report_only_requested_podling(self) -> None:
+        record = OversightRecord(
+            podling={"name": "Age", "status": "unknown", "mentors": [], "startdate": None},
+            report_summary=None,
+            preferred_window=None,
+            preferred_metrics=None,
+            reporting_window=None,
+            reporting_metrics=None,
+            as_of_date="2026-04-18",
+            incubator_reports=[
+                {
+                    "report_id": "2012-10",
+                    "report_period": "2012-10",
+                    "issues": ["Community growth needed"],
+                    "observed_mentor_signoff_count": 1,
+                }
+            ],
+        )
+        data = {
+            "records": [record],
+            "podlings_source": {"source": "podlings.xml"},
+            "health_source": {"reports_dir": "reports"},
+            "report_source": {"source": "report-cache", "available": True},
+            "mail_source": {"source": "mail-cache", "available": False},
+        }
+        with mock.patch.object(tools, "build_records", return_value=data):
+            payload = tools.tool_report_narrative_signals({"podling": "AGE"})
+
+        self.assertEqual([item["podling"] for item in payload["items"]], ["Age"])
+        self.assertEqual(payload["items"][0]["latest_report_period"], "2012-10")
+        self.assertEqual(payload["items"][0]["report_entry_count"], 1)
+
     def test_cross_source_mismatches_surfaces_report_vs_health_conflicts(self) -> None:
         record = OversightRecord(
             podling={"name": "Mismatch", "status": "current", "mentors": ["A", "B"], "startdate": "2024-01-01"},
@@ -1232,6 +1304,43 @@ class ToolTests(unittest.TestCase):
             [mismatch["signal"] for mismatch in payload["items"][0]["mismatches"]],
             ["latest_signoff_drop_vs_average"],
         )
+
+    def test_cross_source_mismatches_includes_non_current_requested_podling(self) -> None:
+        record = OversightRecord(
+            podling={"name": "Age", "status": "graduated", "mentors": [], "startdate": None},
+            report_summary={
+                "latest_metrics": {
+                    "3m": {"commits": 18, "unique_committers": 4, "unique_authors": 4, "releases": 0},
+                    "12m": {"releases": 0, "median_gap_days": 220.0},
+                }
+            },
+            preferred_window="3m",
+            preferred_metrics={"commits": 18, "unique_committers": 4, "unique_authors": 4, "releases": 0},
+            reporting_window="12m",
+            reporting_metrics={"reports_count": 1, "avg_mentor_signoffs": 2.0},
+            as_of_date="2026-04-18",
+            incubator_reports=[
+                {
+                    "report_id": "2012-10",
+                    "report_period": "2012-10",
+                    "issues": [],
+                    "observed_mentor_signoff_count": 1,
+                    "last_release": "0.3.0",
+                }
+            ],
+        )
+        data = {
+            "records": [record],
+            "podlings_source": {"source": "podlings.xml"},
+            "health_source": {"reports_dir": "reports"},
+            "report_source": {"source": "report-cache", "available": True},
+            "mail_source": {"source": "mail-cache", "available": True},
+        }
+        with mock.patch.object(tools, "build_records", return_value=data):
+            payload = tools.tool_cross_source_mismatches({"podling": "AGE"})
+
+        self.assertEqual([item["podling"] for item in payload["items"]], ["Age"])
+        self.assertEqual(payload["items"][0]["latest_report_period"], "2012-10")
 
     def test_stalled_podlings_require_all_stall_conditions(self) -> None:
         stalled = OversightRecord(

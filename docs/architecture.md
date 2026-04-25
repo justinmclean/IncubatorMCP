@@ -46,6 +46,7 @@ It:
 - loads MailMCP release vote/result thread history for the `release_vote_evidence` tool only
 - loads ReleaseMCP artifact/cadence evidence for the `release_artifact_evidence` tool only
 - joins source data into `OversightRecord` objects
+- supports targeted single-podling fallback records when a requested podling is absent from the current podlings set but present in cached report, health, or mail source data
 - selects the preferred health window in this order: `3m`, `6m`, `12m`, `to-date`
 
 The default sources can be configured with startup arguments:

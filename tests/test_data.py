@@ -416,3 +416,46 @@ class DataTests(unittest.TestCase):
         load_mail.assert_not_called()
         self.assertFalse(records["mail_source"]["available"])
         self.assertEqual(records["mail_source"]["source"], "not_loaded")
+
+    def test_build_records_adds_requested_podling_from_report_cache_when_missing_from_podlings(self) -> None:
+        with (
+            mock.patch.object(data, "load_podlings", return_value=([], {"source": "podlings.xml"})),
+            mock.patch.object(
+                data,
+                "load_health_summaries",
+                return_value=(
+                    {
+                        "age": {
+                            "latest_metrics": {
+                                "3m": {"commits": 7, "unique_committers": 2, "releases": 0},
+                                "12m": {"reports_count": 1, "avg_mentor_signoffs": 1.0},
+                            }
+                        }
+                    },
+                    {"source": "reports"},
+                ),
+            ),
+            mock.patch.object(
+                data,
+                "load_incubator_reports",
+                return_value=(
+                    {
+                        "age": [
+                            {
+                                "report_id": "2012-10",
+                                "report_period": "2012-10",
+                                "issues": ["Need more community growth"],
+                            }
+                        ]
+                    },
+                    {"source": "report-cache", "available": True},
+                ),
+            ),
+        ):
+            records = data.build_records(requested_podling="AGE", as_of_date="2026-04-18")
+
+        self.assertEqual([record.name for record in records["records"]], ["AGE"])
+        self.assertEqual(records["records"][0].status, "unknown")
+        self.assertEqual(records["records"][0].preferred_window, "3m")
+        self.assertEqual(records["records"][0].reporting_window, "12m")
+        self.assertEqual(records["records"][0].incubator_reports[0]["report_period"], "2012-10")

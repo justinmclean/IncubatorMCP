@@ -288,6 +288,8 @@ Arguments:
 
 Return report-derived signals from cached Incubator reports, including latest reported issues, recurring issues across report history, low observed mentor sign-off, and mismatches between report narrative release claims and health-based release visibility.
 
+When `podling` is provided, this lookup can use non-current or report-cache-only podlings if matching source data is available.
+
 Arguments:
 
 - `as_of_date`
@@ -298,6 +300,8 @@ Arguments:
 ### `cross_source_mismatches`
 
 Return concrete mismatches between cached report narrative and current health or release evidence, such as a quiet latest report despite elevated health risk, a reported last release with no 12-month release visibility, or a one-report mentor sign-off drop that differs from the rolling average.
+
+When `podling` is provided, this lookup can use non-current or report-cache-only podlings if matching source data is available.
 
 Arguments:
 
@@ -380,6 +384,7 @@ Arguments:
 - When omitted, `release_dist_base` uses `--release-dist-base`, `IPMC_RELEASE_DIST_BASE`, or the public Incubator dist release URL.
 - When omitted, `release_archive_base` uses `--release-archive-base`, `IPMC_RELEASE_ARCHIVE_BASE`, or the public Incubator archive URL.
 - Oversight views focus on current podlings by default.
+- Single-podling lookups can still return non-current or report-cache-only podlings when matching source data is available.
 - Health analysis prefers the freshest available window in this order: `3m`, `6m`, `12m`, `to-date`.
 - Source metadata consistently exposes a `source` field. Health and ReportMCP metadata also preserve the upstream
   `reports_dir` field, and MailMCP metadata preserves `cache_dir`, for compatibility with their source MCPs.
