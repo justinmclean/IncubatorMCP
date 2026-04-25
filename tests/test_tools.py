@@ -1097,6 +1097,13 @@ class ToolTests(unittest.TestCase):
         assert_explainability(self, payload["explainability"])
 
     def test_report_narrative_signals_surfaces_latest_and_recurring_report_issues(self) -> None:
+        repeated_body = (
+            "The podling continues community building, release preparation, and mentor follow-up. "
+            "The podling continues community building, release preparation, and mentor follow-up. "
+            "The podling continues community building, release preparation, and mentor follow-up. "
+            "The podling continues community building, release preparation, and mentor follow-up. "
+            "The podling continues community building, release preparation, and mentor follow-up."
+        )
         record = OversightRecord(
             podling={"name": "Signals", "status": "current", "mentors": ["A", "B"], "startdate": "2024-01-01"},
             report_summary={
@@ -1114,6 +1121,7 @@ class ToolTests(unittest.TestCase):
                 {
                     "report_id": "2026-01",
                     "report_period": "2026-01",
+                    "body": repeated_body,
                     "issues": ["Community growth needed"],
                     "observed_mentor_signoff_count": 2,
                     "last_release": "0.8.0",
@@ -1121,6 +1129,7 @@ class ToolTests(unittest.TestCase):
                 {
                     "report_id": "2026-04",
                     "report_period": "2026-04",
+                    "body": repeated_body + " ",
                     "issues": ["Community growth needed", "Release follow-up"],
                     "observed_mentor_signoff_count": 1,
                     "last_release": "0.8.0",
@@ -1147,6 +1156,7 @@ class ToolTests(unittest.TestCase):
             [
                 "latest_reported_issues",
                 "recurring_reported_issue",
+                "possible_report_copy_forward",
                 "low_observed_mentor_signoff",
                 "report_release_visibility_mismatch",
             ],

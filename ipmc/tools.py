@@ -84,6 +84,7 @@ SIGNIFICANT_CHANGE_SIGNALS = {
 REPORT_NARRATIVE_SIGNALS = {
     "latest_reported_issues",
     "recurring_reported_issue",
+    "possible_report_copy_forward",
     "low_observed_mentor_signoff",
     "report_release_visibility_mismatch",
 }

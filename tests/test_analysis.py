@@ -241,6 +241,13 @@ class AnalysisTests(unittest.TestCase):
         self.assertEqual(signoff_signal.severity, "medium")
 
     def test_report_narrative_signals_detect_recurring_issues_and_release_mismatch(self) -> None:
+        repeated_body = (
+            "The podling continues community building, release preparation, and mentor follow-up. "
+            "The podling continues community building, release preparation, and mentor follow-up. "
+            "The podling continues community building, release preparation, and mentor follow-up. "
+            "The podling continues community building, release preparation, and mentor follow-up. "
+            "The podling continues community building, release preparation, and mentor follow-up."
+        )
         record = make_record(
             startdate="2024-01-01",
             metrics={
@@ -263,6 +270,7 @@ class AnalysisTests(unittest.TestCase):
             {
                 "report_id": "2026-01",
                 "report_period": "2026-01",
+                "body": repeated_body,
                 "issues": ["Need more community review", "Release pending"],
                 "observed_mentor_signoff_count": 2,
                 "last_release": "0.9.0",
@@ -270,6 +278,7 @@ class AnalysisTests(unittest.TestCase):
             {
                 "report_id": "2026-04",
                 "report_period": "2026-04",
+                "body": repeated_body + " ",
                 "issues": ["Need more community review", "Mentor follow-up needed"],
                 "observed_mentor_signoff_count": 1,
                 "last_release": "0.9.0",
@@ -284,12 +293,44 @@ class AnalysisTests(unittest.TestCase):
             {
                 "latest_reported_issues",
                 "recurring_reported_issue",
+                "possible_report_copy_forward",
                 "low_observed_mentor_signoff",
                 "report_release_visibility_mismatch",
             },
         )
         repeated = next(signal for signal in signals if signal["signal"] == "recurring_reported_issue")
         self.assertEqual(repeated["current_value"][0]["issue"], "Need more community review")
+        copy_forward = next(signal for signal in signals if signal["signal"] == "possible_report_copy_forward")
+        self.assertEqual(copy_forward["current_value"]["previous_report_period"], "2026-01")
+
+    def test_report_narrative_signals_skip_copy_forward_for_short_bodies(self) -> None:
+        record = make_record(
+            metrics={
+                "commits": 12,
+                "unique_committers": 3,
+                "unique_authors": 3,
+                "releases": 0,
+                "trends": {},
+            }
+        )
+        record.incubator_reports = [
+            {
+                "report_id": "2026-01",
+                "report_period": "2026-01",
+                "body": "No change.",
+                "issues": ["Need more community review"],
+            },
+            {
+                "report_id": "2026-04",
+                "report_period": "2026-04",
+                "body": "No change.",
+                "issues": ["Need more community review"],
+            },
+        ]
+
+        signals = report_narrative_signals(record)
+
+        self.assertNotIn("possible_report_copy_forward", {signal["signal"] for signal in signals})
 
     def test_cross_source_mismatches_detect_quiet_report_and_signoff_drop(self) -> None:
         record = make_record(

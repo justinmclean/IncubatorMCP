@@ -261,6 +261,7 @@ def report_narrative_signals_properties() -> dict[str, Any]:
                 "enum": [
                     "latest_reported_issues",
                     "recurring_reported_issue",
+                    "possible_report_copy_forward",
                     "low_observed_mentor_signoff",
                     "report_release_visibility_mismatch",
                 ],

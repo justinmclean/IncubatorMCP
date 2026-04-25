@@ -286,7 +286,7 @@ Arguments:
 
 ### `report_narrative_signals`
 
-Return report-derived signals from cached Incubator reports, including latest reported issues, recurring issues across report history, low observed mentor sign-off, and mismatches between report narrative release claims and health-based release visibility.
+Return report-derived signals from cached Incubator reports, including latest reported issues, recurring issues across report history, possible copy-forward narrative text between consecutive reports, low observed mentor sign-off, and mismatches between report narrative release claims and health-based release visibility.
 
 When `podling` is provided, this lookup can use non-current or report-cache-only podlings if matching source data is available.
 

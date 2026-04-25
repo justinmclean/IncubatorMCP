@@ -177,7 +177,7 @@ class DataTests(unittest.TestCase):
         self.assertTrue(meta["available"])
         self.assertEqual(reports["alpha"][0]["report_id"], "report202604")
         self.assertEqual(reports["alpha"][0]["issues"], ["Grow community."])
-        item.to_dict.assert_called_once_with(include_body=False)
+        item.to_dict.assert_called_once_with(include_body=True)
 
     def test_environment_overrides_report_source_default(self) -> None:
         module = mock.Mock()

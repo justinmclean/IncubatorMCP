@@ -384,7 +384,7 @@ def load_incubator_reports(report_source: str | None = None) -> tuple[dict[str, 
     by_podling: dict[str, list[dict[str, Any]]] = {}
     for report in reports:
         for item in report.podling_reports:
-            entry = item.to_dict(include_body=False)
+            entry = item.to_dict(include_body=True)
             entry.update(
                 {
                     "report_id": report.report_id,

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from difflib import SequenceMatcher
 from typing import Any
 
 from .data import OversightRecord
@@ -26,6 +27,9 @@ SIGNIFICANT_ACTIVITY_FIELDS = {
     "dev_unique_posters": "dev-list participation",
 }
 REPORT_ISSUE_NORMALIZE_RE = re.compile(r"[^a-z0-9]+")
+REPORT_BODY_WHITESPACE_RE = re.compile(r"\s+")
+REPORT_COPY_FORWARD_MIN_CHARS = 300
+REPORT_COPY_FORWARD_SIMILARITY = 0.75
 
 
 def severity_value(value: str) -> int:
@@ -909,6 +913,43 @@ def _normalize_report_issue(issue: str) -> str:
     return REPORT_ISSUE_NORMALIZE_RE.sub(" ", issue.casefold()).strip()
 
 
+def _normalize_report_body(text: str | None) -> str:
+    if not text:
+        return ""
+    return REPORT_BODY_WHITESPACE_RE.sub(" ", text.casefold()).strip()
+
+
+def _copy_forward_signal(record: OversightRecord) -> dict[str, Any] | None:
+    if len(record.incubator_reports) < 2:
+        return None
+
+    previous_report = record.incubator_reports[-2]
+    latest_report = record.incubator_reports[-1]
+    previous_body = _normalize_report_body(str(previous_report.get("body") or ""))
+    latest_body = _normalize_report_body(str(latest_report.get("body") or ""))
+    if min(len(previous_body), len(latest_body)) < REPORT_COPY_FORWARD_MIN_CHARS:
+        return None
+
+    similarity = SequenceMatcher(a=previous_body, b=latest_body).ratio()
+    if similarity < REPORT_COPY_FORWARD_SIMILARITY:
+        return None
+
+    return {
+        "signal": "possible_report_copy_forward",
+        "severity": "low",
+        "report_period": latest_report.get("report_period"),
+        "report_id": latest_report.get("report_id"),
+        "current_value": {
+            "previous_report_period": previous_report.get("report_period"),
+            "similarity_ratio": round(similarity, 3),
+        },
+        "reason": (
+            "The two most recent cached Incubator report narratives are substantially similar, "
+            "so the latest report may merit a quick human check for copy-forward text."
+        ),
+    }
+
+
 def report_narrative_signals(record: OversightRecord) -> list[dict[str, Any]]:
     """Return explicit signals derived from cached report narrative fields."""
     if not record.incubator_reports:
@@ -964,6 +1005,10 @@ def report_narrative_signals(record: OversightRecord) -> list[dict[str, Any]]:
                 "reason": "Some reported issues recur across multiple cached Incubator reports.",
             }
         )
+
+    copy_forward_signal = _copy_forward_signal(record)
+    if copy_forward_signal is not None:
+        signals.append(copy_forward_signal)
 
     observed_signoffs = latest_report.get("observed_mentor_signoff_count")
     if isinstance(observed_signoffs, int | float) and observed_signoffs < 2:
