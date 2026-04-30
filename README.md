@@ -70,13 +70,13 @@ To serve the same JSON-RPC/MCP protocol over HTTP instead, pass `--http`:
 ipmc-mcp \
   --http \
   --host 127.0.0.1 \
-  --port 8765 \
+  --port 8080 \
   --health-source /path/to/incubator/tools/health/reports \
   --report-source /path/to/ReportMCP/.cache/incubator-reports \
   --mail-source /path/to/MailMCP/.cache/incubator-general-mail
 ```
 
-HTTP mode accepts JSON-RPC MCP `POST` requests at `/mcp` and `/`, and exposes a simple `GET /health` endpoint. `--host` and `--port` only affect HTTP mode. For public hosting and Claude connector setup, see [docs/hosting.md](docs/hosting.md).
+HTTP mode uses the official MCP Streamable HTTP transport at `/mcp` and exposes a simple `GET /health` endpoint. `--host` and `--port` only affect HTTP mode. For public hosting and Claude connector setup, see [docs/hosting.md](docs/hosting.md).
 
 ## Example MCP client config
 
@@ -119,7 +119,7 @@ Configure startup defaults with command-line arguments or environment variables:
 - `--release-archive-base` or `IPMC_RELEASE_ARCHIVE_BASE`: ReleaseMCP `archive.apache.org` base URL or local archive directory
 - `--http`: serve JSON-RPC/MCP over HTTP instead of stdio
 - `--host`: HTTP bind host when `--http` is set; defaults to `127.0.0.1`
-- `--port`: HTTP bind port when `--http` is set; defaults to `8765`
+- `--port`: HTTP bind port when `--http` is set; defaults to `8080`
 
 Source defaults can also be set once per MCP session with `configure_sources`. Normal tool calls should only pass task arguments such as `podling`, `limit`, or filters; per-tool source arguments are for one-off overrides.
 

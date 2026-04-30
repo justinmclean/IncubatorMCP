@@ -23,6 +23,7 @@ dependencies = [
   "apache-incubator-mail-mcp @ git+https://github.com/justinmclean/MailMCP.git@master",
   "apache-incubator-releases-mcp @ git+https://github.com/justinmclean/ReleaseMCP.git@master",
   "apache-podlings-mcp @ git+https://github.com/justinmclean/PodlingsMCP.git@master",
+  "mcp>=1.0.0",
 ]
 
 [project.scripts]

@@ -129,7 +129,7 @@ This module implements the MCP/JSON-RPC behavior and the supported transports.
 It supports:
 
 - stdio transport by default
-- HTTP transport when started with `--http`
+- MCP SDK Streamable HTTP transport when started with `--http`
 - `initialize`
 - `notifications/initialized`
 - `tools/list`
@@ -137,7 +137,7 @@ It supports:
 - JSON-RPC batch requests
 - structured JSON-RPC errors for parse errors, invalid requests, invalid params, and unknown methods
 
-The HTTP transport accepts JSON-RPC MCP `POST` requests at `/mcp` and `/`, exposes `GET /health`, and uses the same request handler as stdio. It validates the Streamable HTTP `Accept` header when present and returns `405 Method Not Allowed` for `GET /mcp` because this server does not provide a server-initiated event stream. The protocol layer should only orchestrate requests and responses. It should not own IPMC scoring or data composition logic. Structured tool results are returned as both MCP `structuredContent` and a JSON text fallback for clients that only read `content`.
+The HTTP transport is backed by the official MCP Python SDK Streamable HTTP session manager at `/mcp`, exposes `GET /health`, and uses the same tool registry as stdio. The protocol layer should only orchestrate requests and responses. It should not own IPMC scoring or data composition logic. Structured tool results are returned as both MCP `structuredContent` and a JSON text fallback for clients that only read `content`.
 
 ### `server.py`
 

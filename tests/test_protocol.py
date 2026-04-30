@@ -320,6 +320,50 @@ class ProtocolTests(unittest.TestCase):
         configure.assert_called_once()
         run_http.assert_called_once_with("127.0.0.1", 0)
 
+    def test_streamable_http_app_exposes_health_and_tools(self) -> None:
+        from starlette.testclient import TestClient
+
+        with TestClient(protocol.create_streamable_http_app(json_response=True, stateless=True)) as client:
+            health = client.get("/health")
+            tools = client.post(
+                "/mcp",
+                json={"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}},
+                headers={"Accept": "application/json"},
+            )
+
+        self.assertEqual(health.status_code, 200)
+        self.assertEqual(health.json()["serverInfo"]["name"], "ipmc-mcp")
+        self.assertEqual(tools.status_code, 200)
+        self.assertIn("tools", tools.json()["result"])
+
+    def test_streamable_http_app_calls_tool(self) -> None:
+        from starlette.testclient import TestClient
+
+        with make_fixture_sources() as (podlings_source, health_source):
+            with TestClient(protocol.create_streamable_http_app(json_response=True, stateless=True)) as client:
+                response = client.post(
+                    "/mcp",
+                    json={
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "tools/call",
+                        "params": {
+                            "name": "podling_brief",
+                            "arguments": {
+                                "podling": "Alpha",
+                                "podlings_source": podlings_source,
+                                "health_source": health_source,
+                                "as_of_date": "2026-04-18",
+                            },
+                        },
+                    },
+                    headers={"Accept": "application/json"},
+                )
+
+        self.assertEqual(response.status_code, 200)
+        result = response.json()["result"]
+        self.assertEqual(result["structuredContent"]["podling"], "Alpha")
+
     def test_http_handler_serves_json_rpc_requests(self) -> None:
         body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}).encode("utf-8")
         sent: list[tuple[protocol.HTTPStatus, Any]] = []
@@ -356,15 +400,24 @@ class ProtocolTests(unittest.TestCase):
 
         self.assertEqual(sent, [(protocol.HTTPStatus.METHOD_NOT_ALLOWED, None)])
 
-    def test_http_handler_requires_streamable_http_accept_header(self) -> None:
+    def test_http_handler_rejects_unusable_accept_header(self) -> None:
+        body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}).encode("utf-8")
+        sent: list[tuple[protocol.HTTPStatus, Any]] = []
+        handler = self._make_http_handler(body, sent, headers={"Accept": "text/html"})
+
+        handler.do_POST()
+
+        self.assertEqual(sent[0][0], protocol.HTTPStatus.NOT_ACCEPTABLE)
+        self.assertEqual(sent[0][1]["error"]["code"], -32600)
+
+    def test_http_handler_accepts_json_only_accept_header(self) -> None:
         body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}).encode("utf-8")
         sent: list[tuple[protocol.HTTPStatus, Any]] = []
         handler = self._make_http_handler(body, sent, headers={"Accept": "application/json"})
 
         handler.do_POST()
 
-        self.assertEqual(sent[0][0], protocol.HTTPStatus.NOT_ACCEPTABLE)
-        self.assertEqual(sent[0][1]["error"]["code"], -32600)
+        self.assertEqual(sent[0][0], protocol.HTTPStatus.OK)
 
     def test_http_handler_accepts_supported_protocol_version_header(self) -> None:
         body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}).encode("utf-8")
