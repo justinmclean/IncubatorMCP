@@ -2,7 +2,7 @@
 
 ## Overview
 
-`IPMC MCP` exposes Apache Incubator PMC oversight views through a small MCP-compatible stdio server.
+`IPMC MCP` exposes Apache Incubator PMC oversight views through a small MCP-compatible server. It defaults to stdio and can optionally serve the same JSON-RPC/MCP behavior over HTTP.
 
 It does not replace the source MCPs. Instead, it composes:
 
@@ -16,9 +16,9 @@ The resulting tools provide IPMC-oriented synthesis: recent-change scans, report
 
 ## Runtime Flow
 
-1. An MCP client launches `server.py` over stdio.
+1. An MCP client launches `server.py` over stdio, or the server is started with `--http` to accept HTTP JSON-RPC requests.
 2. `server.py` delegates to `ipmc.protocol.main`.
-3. `ipmc.protocol` handles JSON-RPC/MCP messages and dispatches tool calls.
+3. `ipmc.protocol` handles JSON-RPC/MCP messages from the selected transport and dispatches tool calls.
 4. `ipmc.tools` validates arguments and calls the relevant oversight tool handler.
 5. `ipmc.data` loads and composes source data from installed source MCP libraries.
 6. `ipmc.analysis` derives IPMC-level risk, readiness, confidence, and community signals.
@@ -124,10 +124,12 @@ New tool schema definitions should be added here rather than inline in `protocol
 
 ### `ipmc/protocol.py`
 
-This module implements the stdio MCP/JSON-RPC behavior.
+This module implements the MCP/JSON-RPC behavior and the supported transports.
 
 It supports:
 
+- stdio transport by default
+- HTTP transport when started with `--http`
 - `initialize`
 - `notifications/initialized`
 - `tools/list`
@@ -135,7 +137,7 @@ It supports:
 - JSON-RPC batch requests
 - structured JSON-RPC errors for parse errors, invalid requests, invalid params, and unknown methods
 
-The protocol layer should only orchestrate requests and responses. It should not own IPMC scoring or data composition logic. Structured tool results are returned as both MCP `structuredContent` and a JSON text fallback for clients that only read `content`.
+The HTTP transport accepts JSON-RPC MCP `POST` requests at `/mcp` and `/`, exposes `GET /health`, and uses the same request handler as stdio. It validates the Streamable HTTP `Accept` header when present and returns `405 Method Not Allowed` for `GET /mcp` because this server does not provide a server-initiated event stream. The protocol layer should only orchestrate requests and responses. It should not own IPMC scoring or data composition logic. Structured tool results are returned as both MCP `structuredContent` and a JSON text fallback for clients that only read `content`.
 
 ### `server.py`
 

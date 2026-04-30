@@ -62,7 +62,21 @@ PYTHONPATH=/path/to/HealthMCP/src:/path/to/PodlingsMCP/src:/path/to/ReportMCP/sr
   --mail-source /path/to/MailMCP/.cache/incubator-general-mail
 ```
 
-The server uses `stdio`, so it is intended to be launched by an MCP client.
+By default the server uses `stdio`, so it is intended to be launched by an MCP client.
+
+To serve the same JSON-RPC/MCP protocol over HTTP instead, pass `--http`:
+
+```bash
+ipmc-mcp \
+  --http \
+  --host 127.0.0.1 \
+  --port 8765 \
+  --health-source /path/to/incubator/tools/health/reports \
+  --report-source /path/to/ReportMCP/.cache/incubator-reports \
+  --mail-source /path/to/MailMCP/.cache/incubator-general-mail
+```
+
+HTTP mode accepts JSON-RPC MCP `POST` requests at `/mcp` and `/`, and exposes a simple `GET /health` endpoint. `--host` and `--port` only affect HTTP mode. For public hosting and Claude connector setup, see [docs/hosting.md](docs/hosting.md).
 
 ## Example MCP client config
 
@@ -103,6 +117,9 @@ Configure startup defaults with command-line arguments or environment variables:
 - `--mail-api-base` or `IPMC_MAIL_API_BASE`: MailMCP/Pony Mail API base URL for live Incubator general-list search
 - `--release-dist-base` or `IPMC_RELEASE_DIST_BASE`: ReleaseMCP `dist.apache.org` base URL or local release directory
 - `--release-archive-base` or `IPMC_RELEASE_ARCHIVE_BASE`: ReleaseMCP `archive.apache.org` base URL or local archive directory
+- `--http`: serve JSON-RPC/MCP over HTTP instead of stdio
+- `--host`: HTTP bind host when `--http` is set; defaults to `127.0.0.1`
+- `--port`: HTTP bind port when `--http` is set; defaults to `8765`
 
 Source defaults can also be set once per MCP session with `configure_sources`. Normal tool calls should only pass task arguments such as `podling`, `limit`, or filters; per-tool source arguments are for one-off overrides.
 
@@ -156,6 +173,7 @@ This gives reviewers a short queue of what changed, what needs attention, and wh
 Use this when a mentor wants a fast status check before following up with podling communities:
 
 - "Give me a focused brief for FooPodling covering reporting, releases, mentoring, and community health."
+- "What is FooPodling's current Incubator reporting schedule?"
 - "Does FooPodling look ready for graduation, and what evidence is missing?"
 - "Show the recent Incubator report evidence for FooPodling, including issues, last release, and observed mentor sign-offs."
 - "For FooPodling, separate source facts from IPMC interpretation and tell me what I should verify with the community."
