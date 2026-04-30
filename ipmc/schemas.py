@@ -47,8 +47,12 @@ LIMIT_PROPERTY = {
     "description": "Optional maximum number of results to return",
 }
 YEARS_PROPERTY = {
-    "type": ["integer", "null"],
-    "description": "Optional number of years of report history to cache; null means full history",
+    "type": "integer",
+    "description": "Optional number of years of report history to cache",
+}
+FULL_HISTORY_PROPERTY = {
+    "type": "boolean",
+    "description": "Whether to cache full report history instead of a bounded recent window",
 }
 PODLING_PROPERTY = {
     "type": "string",
@@ -249,6 +253,7 @@ def report_cache_properties() -> dict[str, Any]:
     return {
         "report_source": REPORT_SOURCE_PROPERTY,
         "years": YEARS_PROPERTY,
+        "full_history": FULL_HISTORY_PROPERTY,
         "limit": LIMIT_PROPERTY,
         "report_url": {
             "type": "string",

@@ -300,7 +300,8 @@ Refresh cached ASF Incubator report data used by the report-narrative and cross-
 Arguments:
 
 - `report_source`: optional cache directory override
-- `years`: optional years of history to cache; `null` means full history
+- `years`: optional years of history to cache
+- `full_history`: optional boolean to cache full history instead of recent reports
 - `limit`: optional max number of reports to cache
 - `report_url`: optional single report URL to cache instead of refreshing recent reports
 - `report_id`: optional report id for a single report URL

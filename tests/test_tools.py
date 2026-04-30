@@ -203,7 +203,7 @@ class ToolTests(unittest.TestCase):
             payload = tools.tool_refresh_report_cache(
                 {
                     "report_source": "/tmp/report-cache",
-                    "years": None,
+                    "full_history": True,
                     "limit": 3,
                 }
             )

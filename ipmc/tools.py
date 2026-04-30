@@ -140,17 +140,6 @@ def optional_integer(arguments: dict[str, Any], key: str) -> int | None:
     return value
 
 
-def optional_nullable_integer(arguments: dict[str, Any], key: str) -> int | None:
-    if key not in arguments:
-        return None
-    value = arguments.get(key)
-    if value is None:
-        return None
-    if not isinstance(value, int) or isinstance(value, bool):
-        raise ValueError(f"'{key}' must be an integer or null")
-    return value
-
-
 def optional_depth(arguments: dict[str, Any], key: str, default: int = 1) -> int:
     value = optional_integer(arguments, key)
     if value is None:
@@ -1151,7 +1140,8 @@ def tool_release_artifact_evidence(arguments: dict[str, Any]) -> dict[str, Any]:
 
 def tool_refresh_report_cache(arguments: dict[str, Any]) -> dict[str, Any]:
     report_source = optional_string(arguments, "report_source")
-    years = optional_nullable_integer(arguments, "years") if "years" in arguments else 2
+    full_history = optional_boolean(arguments, "full_history", False) or False
+    years = None if full_history else optional_integer(arguments, "years") or 2
     limit = optional_integer(arguments, "limit")
     report_url = optional_string(arguments, "report_url")
     report_id = optional_string(arguments, "report_id")
