@@ -26,6 +26,8 @@ from .data import (
     load_incubator_general_mail,
     load_podling_release_artifacts,
     load_podling_release_vote_history,
+    load_podlings,
+    months_since,
     refresh_incubator_general_mail_cache,
     refresh_incubator_report_cache,
     source_defaults,
@@ -535,6 +537,51 @@ def tool_configure_sources(arguments: dict[str, Any]) -> dict[str, Any]:
         "generated_for": "configure_sources",
         "updated": sorted(configured),
         "source_defaults": source_defaults(),
+    }
+
+
+def tool_current_podlings_overview(arguments: dict[str, Any]) -> dict[str, Any]:
+    podlings_source = optional_string(arguments, "podlings_source")
+    as_of_date = optional_string(arguments, "as_of_date")
+    limit = optional_integer(arguments, "limit")
+    include_descriptions = optional_boolean(arguments, "include_descriptions", True)
+
+    podlings, podlings_meta = load_podlings(podlings_source)
+    current_podlings = [podling for podling in podlings if str(podling.get("status") or "").casefold() == "current"]
+    current_podlings.sort(key=lambda podling: str(podling.get("name") or "").casefold())
+    if limit is not None:
+        current_podlings = current_podlings[:limit]
+
+    items = []
+    for podling in current_podlings:
+        mentors = podling.get("mentors") or []
+        item = {
+            "podling": podling.get("name"),
+            "status": podling.get("status"),
+            "sponsor": podling.get("sponsor"),
+            "sponsor_type": podling.get("sponsor_type"),
+            "champion": podling.get("champion"),
+            "mentors": mentors,
+            "mentor_count": len(mentors),
+            "startdate": podling.get("startdate"),
+            "months_in_incubation": months_since(podling.get("startdate"), as_of_date),
+            "resource": podling.get("resource"),
+        }
+        if include_descriptions:
+            item["description"] = podling.get("description")
+        items.append(item)
+
+    return {
+        "generated_for": "current_podlings_overview",
+        "podlings_source": podlings_meta,
+        "as_of_date": as_of_date,
+        "total_podling_count": len(podlings),
+        "current_podling_count": len(
+            [podling for podling in podlings if str(podling.get("status") or "").casefold() == "current"]
+        ),
+        "returned_count": len(items),
+        "items": items,
+        "summary": (f"{len(items)} current podling(s) returned from podlings.xml-derived lifecycle metadata."),
     }
 
 
@@ -1617,6 +1664,11 @@ TOOLS: dict[str, dict[str, Any]] = {
         ),
         handler=tool_configure_sources,
         properties=schemas.source_defaults_properties(),
+    ),
+    "current_podlings_overview": schemas.tool_definition(
+        description=("Return a factual overview of current Incubator podlings from podlings.xml lifecycle metadata."),
+        handler=tool_current_podlings_overview,
+        properties=schemas.current_podlings_overview_properties(),
     ),
     "recent_changes": schemas.tool_definition(
         description=("Return per-podling recent deltas the IPMC should scan, excluding unchanged or static fields."),

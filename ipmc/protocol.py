@@ -14,7 +14,7 @@ from .tools import TOOLS
 
 SERVER_INFO = {
     "name": "ipmc-mcp",
-    "version": "0.1.2",
+    "version": "0.1.3",
 }
 
 PARSE_ERROR = -32700

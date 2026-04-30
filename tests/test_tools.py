@@ -196,6 +196,26 @@ class ToolTests(unittest.TestCase):
         self.assertEqual(configured["source_defaults"]["effective"]["podlings_source"], podlings_source)
         self.assertEqual(payload["items"][0]["podling"], "Charlie")
 
+    def test_current_podlings_overview_lists_podlings_xml_metadata(self) -> None:
+        with make_fixture_sources() as (podlings_source, _health_source):
+            payload = tools.tool_current_podlings_overview(
+                {
+                    "podlings_source": podlings_source,
+                    "as_of_date": "2026-04-18",
+                    "limit": 2,
+                    "include_descriptions": False,
+                }
+            )
+
+        self.assertEqual(payload["generated_for"], "current_podlings_overview")
+        self.assertEqual(payload["total_podling_count"], 4)
+        self.assertEqual(payload["current_podling_count"], 4)
+        self.assertEqual(payload["returned_count"], 2)
+        self.assertEqual([item["podling"] for item in payload["items"]], ["Alpha", "Bravo"])
+        self.assertEqual(payload["items"][0]["mentor_count"], 3)
+        self.assertEqual(payload["items"][0]["months_in_incubation"], 27)
+        self.assertNotIn("description", payload["items"][0])
+
     def test_refresh_report_cache_uses_report_source(self) -> None:
         cache_result = {"reports_dir": "/tmp/report-cache", "cached_count": 2}
 

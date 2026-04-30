@@ -217,6 +217,17 @@ to an individual tool when you really want to override the session defaults for 
 
 Set or inspect the source paths used by later tool calls.
 
+### `current_podlings_overview`
+
+Return a factual overview of current Incubator podlings from `podlings.xml` lifecycle metadata, similar to the current-projects table on the Incubator website.
+
+Arguments:
+
+- `podlings_source`: optional `podlings.xml` source override
+- `as_of_date`: optional `YYYY-MM-DD` date for incubation duration
+- `limit`: optional max number of results
+- `include_descriptions`: optional boolean, defaults to true
+
 ### `recent_changes`
 
 Return per-podling recent deltas the IPMC should scan. This is delta-based only: unchanged/static fields are excluded.

@@ -122,6 +122,18 @@ def source_defaults_properties() -> dict[str, Any]:
     }
 
 
+def current_podlings_overview_properties() -> dict[str, Any]:
+    return {
+        "podlings_source": PODLINGS_SOURCE_PROPERTY,
+        "as_of_date": AS_OF_DATE_PROPERTY,
+        "limit": LIMIT_PROPERTY,
+        "include_descriptions": {
+            "type": "boolean",
+            "description": "Whether to include podling descriptions in each item; defaults to true",
+        },
+    }
+
+
 def watchlist_properties() -> dict[str, Any]:
     return {
         **base_properties(),
