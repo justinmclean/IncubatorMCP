@@ -221,6 +221,8 @@ Set or inspect the source paths used by later tool calls.
 
 Return a factual overview of current Incubator podlings from `podlings.xml` lifecycle metadata, similar to the current-projects table on the Incubator website.
 
+Also available as `podlings_overview` for clients that surface shorter tool names more reliably.
+
 Arguments:
 
 - `podlings_source`: optional `podlings.xml` source override

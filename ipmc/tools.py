@@ -1665,6 +1665,11 @@ TOOLS: dict[str, dict[str, Any]] = {
         handler=tool_configure_sources,
         properties=schemas.source_defaults_properties(),
     ),
+    "podlings_overview": schemas.tool_definition(
+        description=("Return a factual overview of current Incubator podlings from podlings.xml lifecycle metadata."),
+        handler=tool_current_podlings_overview,
+        properties=schemas.current_podlings_overview_properties(),
+    ),
     "current_podlings_overview": schemas.tool_definition(
         description=("Return a factual overview of current Incubator podlings from podlings.xml lifecycle metadata."),
         handler=tool_current_podlings_overview,
