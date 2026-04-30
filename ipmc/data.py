@@ -209,6 +209,7 @@ def _normalize_report_source_meta(overview: dict[str, Any], requested_source: st
 
 def _normalize_mail_source_meta(overview: dict[str, Any], requested_source: str) -> dict[str, Any]:
     meta = dict(overview)
+    meta.pop("emails", None)
     source = meta.get("source") or meta.get("cache_dir") or requested_source
     meta["source"] = source
     meta.setdefault("cache_dir", source)
@@ -557,6 +558,21 @@ def load_incubator_general_mail(
 
     cached = incubator_mail_client.load_cached_mail(cache_dir=cache_dir)
     messages = cached.get("emails") or []
+    if not messages and allow_live_fallback and podlings:
+        try:
+            live_mail, live_meta = _load_live_incubator_general_mail(podlings, api_base=api_base)
+        except Exception as exc:
+            meta = _normalize_mail_source_meta(cached, cache_dir)
+            meta["message_count"] = 0
+            meta["podling_count"] = 0
+            meta["available"] = False
+            meta["reason"] = f"MailMCP cache directory is empty and live MailMCP search failed: {exc}"
+            meta["api_base"] = api_base
+            return {}, meta
+        live_meta["fallback_reason"] = "MailMCP cache directory is empty."
+        live_meta["cache_dir"] = cache_dir
+        return live_mail, live_meta
+
     by_podling: dict[str, list[dict[str, Any]]] = {}
     for podling in podlings or []:
         podling_name = str(podling.get("name", ""))
@@ -604,6 +620,10 @@ def refresh_incubator_general_mail_cache(
         query=query,
         limit=limit,
     )
+    upstream_source = result.get("source")
+    if upstream_source is not None and not isinstance(upstream_source, str):
+        result.setdefault("source_details", upstream_source)
+        result["source"] = cache_dir
     result.setdefault("source", cache_dir)
     result.setdefault("cache_dir", cache_dir)
     result.setdefault("api_base", api_base)

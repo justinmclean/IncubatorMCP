@@ -260,6 +260,7 @@ class DataTests(unittest.TestCase):
         self.assertTrue(meta["available"])
         self.assertEqual(meta["message_count"], 2)
         self.assertEqual(meta["podling_count"], 1)
+        self.assertNotIn("emails", meta)
         self.assertEqual(mail["alpha"][0]["id"], "alpha-message")
         self.assertNotIn("bravo", mail)
 
@@ -312,6 +313,42 @@ class DataTests(unittest.TestCase):
         self.assertEqual(mail["alpha"][0]["id"], "alpha-message")
         self.assertNotIn("bravo", mail)
 
+    def test_load_incubator_general_mail_falls_back_to_live_search_with_empty_cache(self) -> None:
+        module = mock.Mock()
+        module.load_cached_mail.return_value = {"cache_dir": "/tmp/mail-cache", "count": 0, "emails": []}
+        module.fetch_mail_stats.side_effect = [
+            {
+                "emails": [
+                    {
+                        "id": "alpha-message",
+                        "subject": "[DISCUSS] Alpha graduation",
+                        "from": "Mentor <mentor@apache.org>",
+                        "date": "2026-04-20 00:00:00 UTC",
+                    }
+                ]
+            }
+        ]
+
+        with mock.patch.object(data.Path, "exists", return_value=True):
+            with mock.patch.object(data, "incubator_mail_client", module):
+                mail, meta = data.load_incubator_general_mail(
+                    "/tmp/mail-cache",
+                    [{"name": "Alpha"}],
+                    mail_api_base="https://example.test/api",
+                )
+
+        module.load_cached_mail.assert_called_once_with(cache_dir="/tmp/mail-cache")
+        module.fetch_mail_stats.assert_called_once_with(
+            api_base="https://example.test/api",
+            timespan=data.DEFAULT_MAIL_SEARCH_TIMESPAN,
+            query="Alpha",
+            limit=data.DEFAULT_MAIL_QUERY_LIMIT,
+        )
+        self.assertEqual(meta["mode"], "live")
+        self.assertEqual(meta["cache_dir"], "/tmp/mail-cache")
+        self.assertEqual(meta["fallback_reason"], "MailMCP cache directory is empty.")
+        self.assertEqual(mail["alpha"][0]["id"], "alpha-message")
+
     def test_load_incubator_general_mail_reports_live_fallback_failure(self) -> None:
         module = mock.Mock()
         module.fetch_mail_stats.side_effect = RuntimeError("network unavailable")
@@ -326,7 +363,11 @@ class DataTests(unittest.TestCase):
 
     def test_refresh_incubator_general_mail_cache_uses_mail_mcp(self) -> None:
         module = mock.Mock()
-        module.cache_mail_stats.return_value = {"cache_dir": "/tmp/mail-cache", "cached_count": 5}
+        module.cache_mail_stats.return_value = {
+            "cache_dir": "/tmp/mail-cache",
+            "cached_count": 5,
+            "source": {"api_base": "https://example.test/api", "hits": 5},
+        }
 
         with mock.patch.object(data, "incubator_mail_client", module):
             result = data.refresh_incubator_general_mail_cache(
@@ -347,6 +388,8 @@ class DataTests(unittest.TestCase):
         self.assertTrue(result["available"])
         self.assertTrue(result["cached"])
         self.assertEqual(result["cached_count"], 5)
+        self.assertEqual(result["source"], "/tmp/mail-cache")
+        self.assertEqual(result["source_details"]["api_base"], "https://example.test/api")
 
     def test_load_podling_release_vote_history_uses_mail_mcp(self) -> None:
         module = mock.Mock()
