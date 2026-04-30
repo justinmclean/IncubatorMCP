@@ -404,6 +404,44 @@ def load_incubator_reports(report_source: str | None = None) -> tuple[dict[str, 
     return by_podling, meta
 
 
+def refresh_incubator_report_cache(
+    report_source: str | None = None,
+    *,
+    years: int | None = 2,
+    limit: int | None = None,
+    report_url: str | None = None,
+    report_id: str | None = None,
+) -> dict[str, Any]:
+    reports_dir, _explicit = _resolved_report_source(report_source)
+    if incubator_report_parser is None:
+        return {
+            "source": reports_dir,
+            "reports_dir": reports_dir,
+            "available": False,
+            "cached": False,
+            "reason": "apache-incubator-reports-mcp is not installed.",
+        }
+
+    if report_url:
+        cache_one = getattr(incubator_report_parser, "cache_report_url")
+        result = cache_one(
+            report_url,
+            cache_dir=reports_dir,
+            report_id=report_id,
+        )
+    else:
+        cache_many = getattr(incubator_report_parser, "cache_reports_from_repo")
+        result = cache_many(
+            cache_dir=reports_dir,
+            years=years,
+            limit=limit,
+        )
+    result.setdefault("source", reports_dir)
+    result.setdefault("reports_dir", reports_dir)
+    result["available"] = True
+    return result
+
+
 def _mail_matches_podling(message: dict[str, Any], podling_name: str) -> bool:
     needle = podling_name.casefold()
     haystack = "\n".join(
@@ -533,6 +571,46 @@ def load_incubator_general_mail(
     meta["podling_count"] = len(by_podling)
     meta["available"] = True
     return by_podling, meta
+
+
+def refresh_incubator_general_mail_cache(
+    mail_source: str | None = None,
+    *,
+    mail_api_base: str | None = None,
+    timespan: str | None = None,
+    query: str | None = None,
+    limit: int = 100,
+) -> dict[str, Any]:
+    cache_dir, _explicit = _resolved_mail_source(mail_source)
+    api_base = _resolved_mail_api_base(mail_api_base)
+    resolved_timespan = timespan or DEFAULT_MAIL_SEARCH_TIMESPAN
+    if incubator_mail_client is None:
+        return _mail_unavailable_meta(cache_dir, "apache-incubator-mail-mcp is not installed.", api_base=api_base) | {
+            "cached": False,
+        }
+
+    cacher = getattr(incubator_mail_client, "cache_mail_stats", None)
+    if cacher is None:
+        return _mail_unavailable_meta(
+            cache_dir,
+            "Installed MailMCP does not provide cache_mail_stats.",
+            api_base=api_base,
+        ) | {"cached": False}
+
+    result = cacher(
+        api_base=api_base,
+        cache_dir=cache_dir,
+        timespan=resolved_timespan,
+        query=query,
+        limit=limit,
+    )
+    result.setdefault("source", cache_dir)
+    result.setdefault("cache_dir", cache_dir)
+    result.setdefault("api_base", api_base)
+    result.setdefault("timespan", resolved_timespan)
+    result["available"] = True
+    result["cached"] = True
+    return result
 
 
 def load_podling_release_vote_history(

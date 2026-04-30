@@ -192,6 +192,40 @@ class DataTests(unittest.TestCase):
         module.load_reports.assert_called_once_with("/tmp/report-cache")
         self.assertEqual(meta["source"], "/tmp/report-cache")
 
+    def test_refresh_incubator_report_cache_uses_report_mcp_parser(self) -> None:
+        module = mock.Mock()
+        module.cache_reports_from_repo.return_value = {"reports_dir": "/tmp/report-cache", "cached_count": 3}
+
+        with mock.patch.object(data, "incubator_report_parser", module):
+            result = data.refresh_incubator_report_cache("/tmp/report-cache", years=None, limit=3)
+
+        module.cache_reports_from_repo.assert_called_once_with(
+            cache_dir="/tmp/report-cache",
+            years=None,
+            limit=3,
+        )
+        self.assertTrue(result["available"])
+        self.assertEqual(result["cached_count"], 3)
+
+    def test_refresh_incubator_report_cache_can_cache_single_url(self) -> None:
+        module = mock.Mock()
+        module.cache_report_url.return_value = {"reports_dir": "/tmp/report-cache", "cached": True}
+
+        with mock.patch.object(data, "incubator_report_parser", module):
+            result = data.refresh_incubator_report_cache(
+                "/tmp/report-cache",
+                report_url="https://example.test/report.txt",
+                report_id="report202604",
+            )
+
+        module.cache_report_url.assert_called_once_with(
+            "https://example.test/report.txt",
+            cache_dir="/tmp/report-cache",
+            report_id="report202604",
+        )
+        self.assertTrue(result["available"])
+        self.assertTrue(result["cached"])
+
     def test_load_incubator_general_mail_uses_mail_mcp_cache(self) -> None:
         module = mock.Mock()
         module.load_cached_mail.return_value = {
@@ -289,6 +323,30 @@ class DataTests(unittest.TestCase):
         self.assertEqual(mail, {})
         self.assertFalse(meta["available"])
         self.assertIn("live MailMCP search failed", meta["reason"])
+
+    def test_refresh_incubator_general_mail_cache_uses_mail_mcp(self) -> None:
+        module = mock.Mock()
+        module.cache_mail_stats.return_value = {"cache_dir": "/tmp/mail-cache", "cached_count": 5}
+
+        with mock.patch.object(data, "incubator_mail_client", module):
+            result = data.refresh_incubator_general_mail_cache(
+                "/tmp/mail-cache",
+                mail_api_base="https://example.test/api",
+                timespan="lte=6M",
+                query="release",
+                limit=5,
+            )
+
+        module.cache_mail_stats.assert_called_once_with(
+            api_base="https://example.test/api",
+            cache_dir="/tmp/mail-cache",
+            timespan="lte=6M",
+            query="release",
+            limit=5,
+        )
+        self.assertTrue(result["available"])
+        self.assertTrue(result["cached"])
+        self.assertEqual(result["cached_count"], 5)
 
     def test_load_podling_release_vote_history_uses_mail_mcp(self) -> None:
         module = mock.Mock()

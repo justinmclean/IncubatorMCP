@@ -196,6 +196,59 @@ class ToolTests(unittest.TestCase):
         self.assertEqual(configured["source_defaults"]["effective"]["podlings_source"], podlings_source)
         self.assertEqual(payload["items"][0]["podling"], "Charlie")
 
+    def test_refresh_report_cache_uses_report_source(self) -> None:
+        cache_result = {"reports_dir": "/tmp/report-cache", "cached_count": 2}
+
+        with mock.patch.object(tools, "refresh_incubator_report_cache", return_value=cache_result) as refresh:
+            payload = tools.tool_refresh_report_cache(
+                {
+                    "report_source": "/tmp/report-cache",
+                    "years": None,
+                    "limit": 3,
+                }
+            )
+
+        refresh.assert_called_once_with(
+            "/tmp/report-cache",
+            years=None,
+            limit=3,
+            report_url=None,
+            report_id=None,
+        )
+        self.assertEqual(payload["generated_for"], "refresh_report_cache")
+        self.assertEqual(payload["report_source"]["reports_dir"], "/tmp/report-cache")
+        self.assertEqual(payload["cache_result"]["cached_count"], 2)
+
+    def test_refresh_mail_cache_uses_mail_source(self) -> None:
+        cache_result = {
+            "cache_dir": "/tmp/mail-cache",
+            "api_base": "https://example.test/api",
+            "timespan": "lte=6M",
+            "cached_count": 4,
+        }
+
+        with mock.patch.object(tools, "refresh_incubator_general_mail_cache", return_value=cache_result) as refresh:
+            payload = tools.tool_refresh_mail_cache(
+                {
+                    "mail_source": "/tmp/mail-cache",
+                    "mail_api_base": "https://example.test/api",
+                    "mail_timespan": "lte=6M",
+                    "query": "release",
+                    "limit": 5,
+                }
+            )
+
+        refresh.assert_called_once_with(
+            "/tmp/mail-cache",
+            mail_api_base="https://example.test/api",
+            timespan="lte=6M",
+            query="release",
+            limit=5,
+        )
+        self.assertEqual(payload["generated_for"], "refresh_mail_cache")
+        self.assertEqual(payload["mail_source"]["cache_dir"], "/tmp/mail-cache")
+        self.assertEqual(payload["cache_result"]["cached_count"], 4)
+
     def test_ipmc_watchlist_orders_highest_risk_first(self) -> None:
         with make_fixture_sources() as (podlings_source, health_source):
             payload = tools.tool_ipmc_watchlist(

@@ -293,6 +293,30 @@ Arguments:
 - `podling`: required podling name
 - `release_max_depth`: optional traversal depth under the podling directory, defaults to `1`; use `0` for a shallower scan
 
+### `refresh_report_cache`
+
+Refresh cached ASF Incubator report data used by the report-narrative and cross-source tools.
+
+Arguments:
+
+- `report_source`: optional cache directory override
+- `years`: optional years of history to cache; `null` means full history
+- `limit`: optional max number of reports to cache
+- `report_url`: optional single report URL to cache instead of refreshing recent reports
+- `report_id`: optional report id for a single report URL
+
+### `refresh_mail_cache`
+
+Refresh cached general@incubator.apache.org message summaries used by mail evidence tools.
+
+Arguments:
+
+- `mail_source`: optional cache directory override
+- `mail_api_base`: optional Pony Mail API base URL
+- `mail_timespan`: optional MailMCP timespan expression
+- `query`: optional search query
+- `limit`: optional max number of message summaries to cache
+
 ### `reporting_cohort`
 
 Return current reporting podlings grouped into non-ranked IPMC review buckets: reporting issues, release visibility issues, recent significant changes, and no obvious concerns.

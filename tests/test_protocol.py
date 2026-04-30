@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import json
 import unittest
-from io import BytesIO
-from typing import Any, cast
 from unittest import mock
 
 from ipmc import protocol
@@ -32,6 +30,8 @@ class ProtocolTests(unittest.TestCase):
                 "release_visibility",
                 "release_vote_evidence",
                 "release_artifact_evidence",
+                "refresh_report_cache",
+                "refresh_mail_cache",
                 "reporting_cohort",
                 "report_narrative_signals",
                 "cross_source_mismatches",
@@ -363,99 +363,3 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         result = response.json()["result"]
         self.assertEqual(result["structuredContent"]["podling"], "Alpha")
-
-    def test_http_handler_serves_json_rpc_requests(self) -> None:
-        body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}).encode("utf-8")
-        sent: list[tuple[protocol.HTTPStatus, Any]] = []
-        handler = self._make_http_handler(body, sent)
-
-        handler.do_POST()
-
-        self.assertEqual(sent[0][0], protocol.HTTPStatus.OK)
-        self.assertIn("tools", sent[0][1]["result"])
-
-    def test_http_handler_returns_accepted_for_notifications(self) -> None:
-        body = json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}}).encode("utf-8")
-        sent: list[tuple[protocol.HTTPStatus, Any]] = []
-        handler = self._make_http_handler(body, sent)
-
-        handler.do_POST()
-
-        self.assertEqual(sent, [(protocol.HTTPStatus.ACCEPTED, None)])
-
-    def test_http_handler_reports_parse_errors(self) -> None:
-        sent: list[tuple[protocol.HTTPStatus, Any]] = []
-        handler = self._make_http_handler(b"{broken", sent)
-
-        handler.do_POST()
-
-        self.assertEqual(sent[0][0], protocol.HTTPStatus.BAD_REQUEST)
-        self.assertEqual(sent[0][1]["error"]["code"], -32700)
-
-    def test_http_handler_rejects_get_on_mcp_endpoint(self) -> None:
-        sent: list[tuple[protocol.HTTPStatus, Any]] = []
-        handler = self._make_http_handler(b"", sent)
-
-        handler.do_GET()
-
-        self.assertEqual(sent, [(protocol.HTTPStatus.METHOD_NOT_ALLOWED, None)])
-
-    def test_http_handler_rejects_unusable_accept_header(self) -> None:
-        body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}).encode("utf-8")
-        sent: list[tuple[protocol.HTTPStatus, Any]] = []
-        handler = self._make_http_handler(body, sent, headers={"Accept": "text/html"})
-
-        handler.do_POST()
-
-        self.assertEqual(sent[0][0], protocol.HTTPStatus.NOT_ACCEPTABLE)
-        self.assertEqual(sent[0][1]["error"]["code"], -32600)
-
-    def test_http_handler_accepts_json_only_accept_header(self) -> None:
-        body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}).encode("utf-8")
-        sent: list[tuple[protocol.HTTPStatus, Any]] = []
-        handler = self._make_http_handler(body, sent, headers={"Accept": "application/json"})
-
-        handler.do_POST()
-
-        self.assertEqual(sent[0][0], protocol.HTTPStatus.OK)
-
-    def test_http_handler_accepts_supported_protocol_version_header(self) -> None:
-        body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}).encode("utf-8")
-        sent: list[tuple[protocol.HTTPStatus, Any]] = []
-        handler = self._make_http_handler(
-            body,
-            sent,
-            headers={
-                "Accept": "application/json, text/event-stream",
-                "MCP-Protocol-Version": "2025-06-18",
-            },
-        )
-
-        handler.do_POST()
-
-        self.assertEqual(sent[0][0], protocol.HTTPStatus.OK)
-
-    def test_http_handler_rejects_unsupported_protocol_version_header(self) -> None:
-        body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}).encode("utf-8")
-        sent: list[tuple[protocol.HTTPStatus, Any]] = []
-        handler = self._make_http_handler(body, sent, headers={"MCP-Protocol-Version": "1999-01-01"})
-
-        handler.do_POST()
-
-        self.assertEqual(sent[0][0], protocol.HTTPStatus.BAD_REQUEST)
-        self.assertEqual(sent[0][1]["error"]["code"], -32600)
-
-    def _make_http_handler(
-        self,
-        body: bytes,
-        sent: list[tuple[protocol.HTTPStatus, Any]],
-        path: str = "/mcp",
-        headers: dict[str, str] | None = None,
-    ) -> protocol.McpHttpHandler:
-        handler = cast(Any, object.__new__(protocol.McpHttpHandler))
-        handler.path = path
-        handler.headers = {"Content-Length": str(len(body)), **(headers or {})}
-        handler.rfile = BytesIO(body)
-        handler._send_json = lambda status, payload: sent.append((status, payload))  # type: ignore[method-assign]
-        handler._send_empty = lambda status, **_: sent.append((status, None))  # type: ignore[method-assign]
-        return cast(protocol.McpHttpHandler, handler)

@@ -45,6 +45,7 @@ It:
 - loads MailMCP general-list message summaries when a tool needs them; if the default cache is missing, this uses read-only live MailMCP search
 - loads MailMCP release vote/result thread history for the `release_vote_evidence` tool only
 - loads ReleaseMCP artifact/cadence evidence for the `release_artifact_evidence` tool only
+- refreshes ReportMCP and MailMCP caches through explicit cache tools
 - joins source data into `OversightRecord` objects
 - supports targeted single-podling fallback records when a requested podling is absent from the current podlings set but present in cached report, health, or mail source data
 - selects the preferred health window in this order: `3m`, `6m`, `12m`, `to-date`
@@ -108,6 +109,8 @@ The public tools are:
 - `release_visibility`
 - `release_vote_evidence`
 - `release_artifact_evidence`
+- `refresh_report_cache`
+- `refresh_mail_cache`
 - `reporting_cohort`
 - `stalled_podlings`
 - `ipmc_watchlist`

@@ -46,6 +46,10 @@ LIMIT_PROPERTY = {
     "type": "integer",
     "description": "Optional maximum number of results to return",
 }
+YEARS_PROPERTY = {
+    "type": ["integer", "null"],
+    "description": "Optional number of years of report history to cache; null means full history",
+}
 PODLING_PROPERTY = {
     "type": "string",
     "description": "Podling name",
@@ -238,6 +242,35 @@ def release_artifact_evidence_properties() -> dict[str, Any]:
         "release_archive_base": RELEASE_ARCHIVE_BASE_PROPERTY,
         "release_max_depth": RELEASE_MAX_DEPTH_PROPERTY,
         "podling": PODLING_PROPERTY,
+    }
+
+
+def report_cache_properties() -> dict[str, Any]:
+    return {
+        "report_source": REPORT_SOURCE_PROPERTY,
+        "years": YEARS_PROPERTY,
+        "limit": LIMIT_PROPERTY,
+        "report_url": {
+            "type": "string",
+            "description": "Optional single Incubator report URL to cache instead of refreshing recent reports",
+        },
+        "report_id": {
+            "type": "string",
+            "description": "Optional report id to use when caching a single report URL",
+        },
+    }
+
+
+def mail_cache_properties() -> dict[str, Any]:
+    return {
+        "mail_source": MAIL_SOURCE_PROPERTY,
+        "mail_api_base": MAIL_API_BASE_PROPERTY,
+        "mail_timespan": MAIL_TIMESPAN_PROPERTY,
+        "query": {
+            "type": "string",
+            "description": "Optional general-list search query to cache",
+        },
+        "limit": LIMIT_PROPERTY,
     }
 
 

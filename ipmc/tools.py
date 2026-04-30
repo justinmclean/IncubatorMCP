@@ -26,6 +26,8 @@ from .data import (
     load_incubator_general_mail,
     load_podling_release_artifacts,
     load_podling_release_vote_history,
+    refresh_incubator_general_mail_cache,
+    refresh_incubator_report_cache,
     source_defaults,
 )
 
@@ -135,6 +137,17 @@ def optional_integer(arguments: dict[str, Any], key: str) -> int | None:
         return None
     if not isinstance(value, int) or isinstance(value, bool):
         raise ValueError(f"'{key}' must be an integer")
+    return value
+
+
+def optional_nullable_integer(arguments: dict[str, Any], key: str) -> int | None:
+    if key not in arguments:
+        return None
+    value = arguments.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise ValueError(f"'{key}' must be an integer or null")
     return value
 
 
@@ -1136,6 +1149,60 @@ def tool_release_artifact_evidence(arguments: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def tool_refresh_report_cache(arguments: dict[str, Any]) -> dict[str, Any]:
+    report_source = optional_string(arguments, "report_source")
+    years = optional_nullable_integer(arguments, "years") if "years" in arguments else 2
+    limit = optional_integer(arguments, "limit")
+    report_url = optional_string(arguments, "report_url")
+    report_id = optional_string(arguments, "report_id")
+
+    result = refresh_incubator_report_cache(
+        report_source,
+        years=years,
+        limit=limit,
+        report_url=report_url,
+        report_id=report_id,
+    )
+    return {
+        "generated_for": "refresh_report_cache",
+        "report_source": {
+            "source": result.get("source") or result.get("reports_dir"),
+            "reports_dir": result.get("reports_dir") or result.get("cache_dir"),
+            "available": result.get("available"),
+            "reason": result.get("reason"),
+        },
+        "cache_result": result,
+    }
+
+
+def tool_refresh_mail_cache(arguments: dict[str, Any]) -> dict[str, Any]:
+    mail_source = optional_string(arguments, "mail_source")
+    mail_api_base = optional_string(arguments, "mail_api_base")
+    mail_timespan = optional_string(arguments, "mail_timespan")
+    query = optional_string(arguments, "query")
+    limit = optional_integer(arguments, "limit") or 100
+
+    result = refresh_incubator_general_mail_cache(
+        mail_source,
+        mail_api_base=mail_api_base,
+        timespan=mail_timespan,
+        query=query,
+        limit=limit,
+    )
+    return {
+        "generated_for": "refresh_mail_cache",
+        "mail_source": {
+            "source": result.get("source") or result.get("cache_dir"),
+            "cache_dir": result.get("cache_dir"),
+            "api_base": result.get("api_base"),
+            "timespan": result.get("timespan"),
+            "available": result.get("available"),
+            "reason": result.get("reason"),
+        },
+        "cache_result": result,
+    }
+
+
 def _cohort_bucket_item(record: Any, signals: list[dict[str, Any]], summary_key: str) -> dict[str, Any]:
     return {
         "podling": record.name,
@@ -1608,6 +1675,16 @@ TOOLS: dict[str, dict[str, Any]] = {
         handler=tool_release_artifact_evidence,
         properties=schemas.release_artifact_evidence_properties(),
         required=["podling"],
+    ),
+    "refresh_report_cache": schemas.tool_definition(
+        description="Refresh cached ASF Incubator report data used by IPMC report-narrative tools.",
+        handler=tool_refresh_report_cache,
+        properties=schemas.report_cache_properties(),
+    ),
+    "refresh_mail_cache": schemas.tool_definition(
+        description="Refresh cached general@incubator.apache.org message summaries used by IPMC mail evidence tools.",
+        handler=tool_refresh_mail_cache,
+        properties=schemas.mail_cache_properties(),
     ),
     "reporting_cohort": schemas.tool_definition(
         description=(

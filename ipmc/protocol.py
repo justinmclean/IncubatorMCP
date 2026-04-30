@@ -27,6 +27,7 @@ NO_RESPONSE: dict[str, Any] = {}
 DEFAULT_HTTP_HOST = "127.0.0.1"
 DEFAULT_HTTP_PORT = 8080
 
+
 def make_response(message_id: Any, result: dict[str, Any]) -> dict[str, Any]:
     return {"jsonrpc": "2.0", "id": message_id, "result": result}
 
