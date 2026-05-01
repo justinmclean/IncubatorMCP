@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from datetime import date
 from unittest import mock
 
 from ipmc import data
@@ -206,6 +207,42 @@ class DataTests(unittest.TestCase):
         )
         self.assertTrue(result["available"])
         self.assertEqual(result["cached_count"], 3)
+
+    def test_refresh_incubator_report_cache_filters_out_of_range_noise(self) -> None:
+        module = mock.Mock()
+        module.cache_reports_from_repo.return_value = {
+            "reports_dir": "/tmp/report-cache",
+            "discovered_count": 4,
+            "cached_count": 2,
+            "error_count": 2,
+            "cached_reports": [
+                {"report": {"report_id": "board-minutes-2026-02-18", "report_period": "2026-02"}},
+                {"report": {"report_id": "board-minutes-1999-04-13", "report_period": "1999-04"}},
+            ],
+            "errors": [
+                {
+                    "url": "https://apache.org/foundation/records/minutes/1999/board_minutes_1999_04_13.txt",
+                    "error": "No Incubator report found.",
+                },
+                {
+                    "url": "https://apache.org/foundation/records/minutes/2025/board_minutes_2025_08_25.txt",
+                    "error": "No Incubator report found.",
+                },
+            ],
+        }
+
+        with mock.patch.object(data, "date") as date_mock:
+            date_mock.today.return_value = date(2026, 5, 1)
+            with mock.patch.object(data, "incubator_report_parser", module):
+                result = data.refresh_incubator_report_cache("/tmp/report-cache", years=4, limit=200)
+
+        self.assertEqual(result["cached_count"], 1)
+        self.assertEqual(result["error_count"], 1)
+        self.assertEqual(result["discovered_count"], 2)
+        self.assertEqual(result["upstream_discovered_count"], 4)
+        self.assertEqual(result["filtered_to_years"], {"years": 4, "first_year": 2023})
+        self.assertEqual(result["cached_reports"][0]["report"]["report_period"], "2026-02")
+        self.assertIn("2025", result["errors"][0]["url"])
 
     def test_refresh_incubator_report_cache_can_cache_single_url(self) -> None:
         module = mock.Mock()

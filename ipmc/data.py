@@ -437,10 +437,56 @@ def refresh_incubator_report_cache(
             years=years,
             limit=limit,
         )
+        if years is not None:
+            result = _filter_report_cache_result_to_years(result, years)
     result.setdefault("source", reports_dir)
     result.setdefault("reports_dir", reports_dir)
     result["available"] = True
     return result
+
+
+def _report_result_year(value: dict[str, Any]) -> int | None:
+    report = value.get("report")
+    if isinstance(report, dict):
+        period = str(report.get("report_period") or "")
+        if re.match(r"^\d{4}-\d{2}$", period):
+            return int(period[:4])
+        report_id = str(report.get("report_id") or "")
+        match = re.search(r"(\d{4})-\d{2}-\d{2}", report_id)
+        if match:
+            return int(match.group(1))
+
+    url_or_path = "\n".join(str(value.get(field, "")) for field in ("url", "source_url", "path"))
+    match = re.search(r"(?:/|_|-)(\d{4})(?:/|_|-)\d{2}(?:_|-)\d{2}", url_or_path)
+    if match:
+        return int(match.group(1))
+    return None
+
+
+def _filter_report_cache_result_to_years(result: dict[str, Any], years: int) -> dict[str, Any]:
+    filtered = dict(result)
+    first_year = date.today().year - years + 1
+
+    def in_range(item: dict[str, Any]) -> bool:
+        item_year = _report_result_year(item)
+        return item_year is None or item_year >= first_year
+
+    cached_reports = filtered.get("cached_reports")
+    if isinstance(cached_reports, list):
+        filtered["cached_reports"] = [item for item in cached_reports if isinstance(item, dict) and in_range(item)]
+        filtered["cached_count"] = len(filtered["cached_reports"])
+
+    errors = filtered.get("errors")
+    if isinstance(errors, list):
+        filtered["errors"] = [item for item in errors if isinstance(item, dict) and in_range(item)]
+        filtered["error_count"] = len(filtered["errors"])
+
+    if "discovered_count" in filtered:
+        filtered.setdefault("upstream_discovered_count", filtered["discovered_count"])
+        filtered["discovered_count"] = len(filtered.get("cached_reports") or []) + len(filtered.get("errors") or [])
+
+    filtered["filtered_to_years"] = {"years": years, "first_year": first_year}
+    return filtered
 
 
 def _mail_matches_podling(message: dict[str, Any], podling_name: str) -> bool:
