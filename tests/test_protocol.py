@@ -23,7 +23,6 @@ class ProtocolTests(unittest.TestCase):
             tool_names,
             [
                 "configure_sources",
-                "podlings_overview",
                 "current_podlings_overview",
                 "recent_changes",
                 "significant_changes",
