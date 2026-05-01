@@ -273,6 +273,18 @@ Arguments:
 - `limit`: optional max number of results per category
 - `include_categories`: optional reporting reliability category filter list
 
+### `reporting_schedule`
+
+Return expected Incubator reporting cadence, due-this-month status, and next expected reporting period from PodlingsMCP.
+
+Arguments:
+
+- `as_of_date`
+- `report_month`: optional reporting month in `YYYY-MM` format
+- `podling`: optional podling name filter
+- `due_this_month`: optional boolean filter
+- `limit`: optional max number of results
+
 ### `release_visibility`
 
 Return release-governance visibility concerns, including no releases in 12 months, release gaps of at least 6 months, and activity-without-release mismatches.

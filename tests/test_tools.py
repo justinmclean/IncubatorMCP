@@ -62,6 +62,43 @@ class ToolTests(unittest.TestCase):
         self.assertEqual(context["report_source"]["source"], "report-cache")
         self.assertEqual(context["mail_source"]["source"], "mail-cache")
 
+    def test_reporting_schedule_wraps_podlings_mcp_schedule(self) -> None:
+        with mock.patch.object(
+            tools,
+            "load_reporting_schedules",
+            return_value=(
+                [
+                    {
+                        "name": "Alpha",
+                        "reporting_group": 1,
+                        "expected_cadence": "quarterly",
+                        "due_this_month": True,
+                    }
+                ],
+                {"source": "/tmp/podlings.xml", "report_month": "2026-04", "count": 1},
+            ),
+        ) as loader:
+            payload = tools.tool_reporting_schedule(
+                {
+                    "podlings_source": "/tmp/podlings.xml",
+                    "as_of_date": "2026-04-18",
+                    "report_month": "2026-04",
+                    "podling": "Alpha",
+                    "due_this_month": True,
+                }
+            )
+
+        loader.assert_called_once_with(
+            "/tmp/podlings.xml",
+            as_of_date="2026-04-18",
+            report_month="2026-04",
+            podling="Alpha",
+            due_this_month=True,
+        )
+        self.assertEqual(payload["generated_for"], "reporting_schedule")
+        self.assertEqual(payload["due_this_month"], ["Alpha"])
+        self.assertEqual(payload["items"][0]["reporting_group"], 1)
+
     def test_load_tool_records_builds_and_filters_for_requested_podling(self) -> None:
         alpha = OversightRecord(
             podling={"name": "Alpha", "status": "current", "mentors": ["A"], "startdate": "2026-01-01"},

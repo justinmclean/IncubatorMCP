@@ -28,6 +28,7 @@ class ProtocolTests(unittest.TestCase):
                 "significant_changes",
                 "reporting_gaps",
                 "reporting_reliability",
+                "reporting_schedule",
                 "release_visibility",
                 "release_vote_evidence",
                 "release_artifact_evidence",

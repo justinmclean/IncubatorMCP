@@ -42,6 +42,10 @@ AS_OF_DATE_PROPERTY = {
     "type": "string",
     "description": "Optional YYYY-MM-DD date to evaluate data as of a specific day",
 }
+REPORT_MONTH_PROPERTY = {
+    "type": "string",
+    "description": "Optional reporting month in YYYY-MM format",
+}
 LIMIT_PROPERTY = {
     "type": "integer",
     "description": "Optional maximum number of results to return",
@@ -217,6 +221,20 @@ def reporting_reliability_properties() -> dict[str, Any]:
                 ],
             },
         },
+    }
+
+
+def reporting_schedule_properties() -> dict[str, Any]:
+    return {
+        "podlings_source": PODLINGS_SOURCE_PROPERTY,
+        "podling": PODLING_PROPERTY,
+        "as_of_date": AS_OF_DATE_PROPERTY,
+        "report_month": REPORT_MONTH_PROPERTY,
+        "due_this_month": {
+            "type": "boolean",
+            "description": "Optional filter to keep only podlings due in the selected report month",
+        },
+        "limit": LIMIT_PROPERTY,
     }
 
 

@@ -11,6 +11,7 @@ from typing import Any
 
 from apache_health_mcp import parser as health_parser
 from podlings import data as podlings_data
+from podlings import tools as podlings_tools
 
 try:
     from apache_incubator_reports_mcp import parser as incubator_report_parser  # type: ignore[import-not-found]
@@ -278,6 +279,45 @@ def load_podlings(podlings_source: str | None = None) -> tuple[list[dict[str, An
     )
     podlings, meta = podlings_data.parse_podlings(source)
     return [asdict(item) for item in podlings], meta
+
+
+def _resolved_podlings_source(podlings_source: str | None = None) -> str:
+    return (
+        podlings_source
+        or _CONFIGURED_DEFAULTS.podlings_source
+        or _env_default(PODLINGS_SOURCE_ENV)
+        or podlings_data.DEFAULT_SOURCE
+    )
+
+
+def load_reporting_schedules(
+    podlings_source: str | None = None,
+    *,
+    as_of_date: str | None = None,
+    report_month: str | None = None,
+    podling: str | None = None,
+    due_this_month: bool | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    source = _resolved_podlings_source(podlings_source)
+    schedule_tool = getattr(podlings_tools, "tool_reporting_schedule", None)
+    if callable(schedule_tool):
+        arguments: dict[str, Any] = {"source": source}
+        if as_of_date:
+            arguments["as_of_date"] = as_of_date
+        if report_month:
+            arguments["report_month"] = report_month
+        if podling:
+            arguments["name"] = podling
+        if due_this_month is not None:
+            arguments["due_this_month"] = due_this_month
+        payload = schedule_tool(arguments)
+        meta = dict(payload.get("source") or {})
+        meta["report_month"] = payload.get("report_month")
+        meta["count"] = payload.get("total_matching", payload.get("returned", 0))
+        schedules = [dict(item) for item in payload.get("podlings") or []]
+        return schedules, meta
+
+    raise RuntimeError("Installed PodlingsMCP does not provide reporting_schedule.")
 
 
 def load_health_summaries(health_source: str | None = None) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:

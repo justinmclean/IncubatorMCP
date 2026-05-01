@@ -28,6 +28,7 @@ from .data import (
     load_podling_release_artifacts,
     load_podling_release_vote_history,
     load_podlings,
+    load_reporting_schedules,
     months_since,
     refresh_incubator_general_mail_cache,
     refresh_incubator_report_cache,
@@ -584,6 +585,37 @@ def tool_current_podlings_overview(arguments: dict[str, Any]) -> dict[str, Any]:
         "returned_count": len(items),
         "items": items,
         "summary": (f"{len(items)} current podling(s) returned from podlings.xml-derived lifecycle metadata."),
+    }
+
+
+def tool_reporting_schedule(arguments: dict[str, Any]) -> dict[str, Any]:
+    podlings_source = optional_string(arguments, "podlings_source")
+    as_of_date = optional_string(arguments, "as_of_date")
+    report_month = optional_string(arguments, "report_month")
+    podling = optional_string(arguments, "podling")
+    due_this_month = optional_boolean(arguments, "due_this_month")
+    limit = optional_integer(arguments, "limit")
+
+    schedules, podlings_meta = load_reporting_schedules(
+        podlings_source,
+        as_of_date=as_of_date,
+        report_month=report_month,
+        podling=podling,
+        due_this_month=due_this_month,
+    )
+    if limit is not None:
+        schedules = schedules[:limit]
+
+    due_items = [item for item in schedules if item.get("due_this_month")]
+    return {
+        "generated_for": "reporting_schedule",
+        "podlings_source": podlings_meta,
+        "as_of_date": as_of_date,
+        "report_month": podlings_meta.get("report_month") or report_month,
+        "returned_count": len(schedules),
+        "due_this_month_count": len(due_items),
+        "due_this_month": [item.get("name") or item.get("podling") for item in due_items],
+        "items": schedules,
     }
 
 
@@ -1697,6 +1729,14 @@ TOOLS: dict[str, dict[str, Any]] = {
         ),
         handler=tool_reporting_reliability,
         properties=schemas.reporting_reliability_properties(),
+    ),
+    "reporting_schedule": schemas.tool_definition(
+        description=(
+            "Return expected Incubator reporting cadence, due-this-month status, "
+            "and next expected reporting period from PodlingsMCP."
+        ),
+        handler=tool_reporting_schedule,
+        properties=schemas.reporting_schedule_properties(),
     ),
     "release_visibility": schemas.tool_definition(
         description=(

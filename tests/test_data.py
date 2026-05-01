@@ -61,6 +61,37 @@ class DataTests(unittest.TestCase):
         self.assertEqual(health_meta["report_count"], 3)
         self.assertEqual(health_meta["source"], health_meta["reports_dir"])
 
+    def test_load_reporting_schedules_extracts_podlings_reporting_metadata(self) -> None:
+        module = mock.Mock()
+        module.tool_reporting_schedule.return_value = {
+            "source": {"source": "/tmp/podlings.xml"},
+            "report_month": "2026-04",
+            "returned": 1,
+            "total_matching": 1,
+            "podlings": [{"name": "Alpha", "reporting_group": 1, "due_this_month": True}],
+        }
+
+        with mock.patch.object(data, "podlings_tools", module):
+            schedules, meta = data.load_reporting_schedules(
+                "/tmp/podlings.xml",
+                as_of_date="2026-04-18",
+                report_month="2026-04",
+                podling="Alpha",
+                due_this_month=True,
+            )
+
+        module.tool_reporting_schedule.assert_called_once_with(
+            {
+                "source": "/tmp/podlings.xml",
+                "as_of_date": "2026-04-18",
+                "report_month": "2026-04",
+                "name": "Alpha",
+                "due_this_month": True,
+            }
+        )
+        self.assertEqual(meta["report_month"], "2026-04")
+        self.assertEqual(schedules, [{"name": "Alpha", "reporting_group": 1, "due_this_month": True}])
+
     def test_load_health_summaries_reads_current_trend_sections(self) -> None:
         report = mock.Mock()
         report.podling = "Trendful"
