@@ -143,6 +143,21 @@ class DataTests(unittest.TestCase):
         module.reports_overview.assert_called_once_with("/tmp/explicit")
         self.assertEqual(overview["source"], "/tmp/explicit")
 
+    def test_load_health_summaries_normalizes_podling_key(self) -> None:
+        report = mock.Mock()
+        report.podling = "Pony_Mail"
+        report.raw_text = ""
+        module = mock.Mock()
+        module.reports_overview.return_value = {"reports_dir": "/tmp/reports", "report_count": 1}
+        module.load_reports.return_value = [report]
+        module.summarize_report.return_value = {"latest_metrics": {"3m": {"commits": 1}}}
+
+        with mock.patch.object(data, "health_parser", module):
+            summaries, _ = data.load_health_summaries("/tmp/reports")
+
+        self.assertIn("ponymail", summaries)
+        self.assertNotIn("pony_mail", summaries)
+
     def test_load_incubator_reports_uses_report_mcp_parser(self) -> None:
         signoff = mock.Mock()
         signoff.mentor = "Mentor One"
@@ -179,6 +194,29 @@ class DataTests(unittest.TestCase):
         self.assertEqual(reports["alpha"][0]["report_id"], "report202604")
         self.assertEqual(reports["alpha"][0]["issues"], ["Grow community."])
         item.to_dict.assert_called_once_with(include_body=True)
+
+    def test_load_incubator_reports_normalizes_podling_key(self) -> None:
+        item = mock.Mock()
+        item.podling = "PonyMail"
+        item.to_dict.return_value = {"podling": "PonyMail"}
+        report = mock.Mock()
+        report.report_id = "report202604"
+        report.report_period = "2026-04"
+        report.title = "Incubator Report April 2026"
+        report.path = "/tmp/reports/report202604.txt"
+        report.source_url = None
+        report.cached_at = None
+        report.podling_reports = [item]
+        module = mock.Mock()
+        module.load_reports.return_value = [report]
+        module.reports_overview.return_value = {"reports_dir": "/tmp/reports", "report_count": 1}
+
+        with mock.patch.object(data.Path, "exists", return_value=True):
+            with mock.patch.object(data, "incubator_report_parser", module):
+                reports, _ = data.load_incubator_reports("/tmp/reports")
+
+        self.assertIn("ponymail", reports)
+        self.assertNotIn("ponymail".casefold().replace("mail", " mail"), reports)
 
     def test_environment_overrides_report_source_default(self) -> None:
         module = mock.Mock()
@@ -428,6 +466,9 @@ class DataTests(unittest.TestCase):
         self.assertEqual(result["source"], "/tmp/mail-cache")
         self.assertEqual(result["source_details"]["api_base"], "https://example.test/api")
 
+    def test_mail_match_normalizes_podling_names(self) -> None:
+        self.assertTrue(data._mail_matches_podling({"subject": "PonyMail release discussion"}, "Pony Mail"))
+
     def test_load_podling_release_vote_history_uses_mail_mcp(self) -> None:
         module = mock.Mock()
         module.podling_release_vote_history.return_value = {
@@ -554,6 +595,41 @@ class DataTests(unittest.TestCase):
         load_mail.assert_not_called()
         self.assertFalse(records["mail_source"]["available"])
         self.assertEqual(records["mail_source"]["source"], "not_loaded")
+
+    def test_build_records_joins_sources_with_podling_name_variants(self) -> None:
+        podling = {
+            "name": "Pony Mail",
+            "status": "current",
+            "mentors": [],
+            "startdate": "2016-05-27",
+        }
+        summary = {"latest_metrics": {"3m": {"commits": 1}, "12m": {"reports_count": 1}}}
+        report_entry = {"report_id": "board-minutes-2024-05-15", "report_period": "2024-05"}
+        mail_entry = {"id": "1", "subject": "PonyMail discussion"}
+
+        with (
+            mock.patch.object(data, "load_podlings", return_value=([podling], {"source": "podlings.xml"})),
+            mock.patch.object(
+                data, "load_health_summaries", return_value=({"ponymail": summary}, {"source": "health"})
+            ),
+            mock.patch.object(
+                data,
+                "load_incubator_reports",
+                return_value=({"ponymail": [report_entry]}, {"source": "reports", "available": True}),
+            ),
+            mock.patch.object(
+                data,
+                "load_incubator_general_mail",
+                return_value=({"ponymail": [mail_entry]}, {"source": "mail", "available": True}),
+            ),
+        ):
+            records = data.build_records(include_mail=True)
+
+        record = records["records"][0]
+        self.assertEqual(record.name, "Pony Mail")
+        self.assertEqual(record.preferred_window, "3m")
+        self.assertEqual(record.incubator_reports, [report_entry])
+        self.assertEqual(record.incubator_general_mail, [mail_entry])
 
     def test_build_records_adds_requested_podling_from_report_cache_when_missing_from_podlings(self) -> None:
         with (

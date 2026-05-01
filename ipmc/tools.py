@@ -21,6 +21,7 @@ from .analysis import (
     stalled_podling_signal,
 )
 from .data import (
+    _podling_key,
     build_records,
     configure_defaults,
     load_incubator_general_mail,
@@ -243,8 +244,9 @@ def _source_context(data: dict[str, Any], *, generated_for: str | None = None) -
 
 
 def _record_by_name(records: list[Any], podling: str) -> Any:
+    requested_key = _podling_key(podling)
     for record in records:
-        if record.name.casefold() == podling.casefold():
+        if _podling_key(record.name) == requested_key:
             return record
     raise ValueError(f"Podling '{podling}' not found")
 
@@ -1052,7 +1054,7 @@ def tool_release_vote_evidence(arguments: dict[str, Any]) -> dict[str, Any]:
     results = history.get("results") or []
     release_signals = release_visibility_signals(record)
     has_results = bool(results)
-    cached_general_mail_matches = len(cached_mail_entries.get(record.name.casefold(), []))
+    cached_general_mail_matches = len(cached_mail_entries.get(_podling_key(record.name), []))
     summary = (
         f"MailMCP found {len(votes)} likely Incubator release vote thread(s) and "
         f"{len(results)} likely result thread(s) for {record.name}."

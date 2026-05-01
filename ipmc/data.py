@@ -66,6 +66,7 @@ TREND_FIELD_LABELS = {
 }
 TREND_SECTION_RE = re.compile(r"^## Trends \(short vs medium\)\s*(.*?)(?=^## |\Z)", re.MULTILINE | re.DOTALL)
 TREND_LINE_RE = re.compile(r"^-\s+\*\*(?P<label>[^*]+):\*\*.*\((?P<trend>[^)]*)\)\s*$", re.MULTILINE)
+PODLING_KEY_RE = re.compile(r"[^a-z0-9]+")
 
 
 def configure_defaults(
@@ -117,6 +118,10 @@ def _env_default(name: str) -> str | None:
         return None
     stripped = value.strip()
     return stripped or None
+
+
+def _podling_key(name: str) -> str:
+    return PODLING_KEY_RE.sub("", name.casefold())
 
 
 def parse_iso_date(value: str | None) -> date | None:
@@ -282,7 +287,7 @@ def load_health_summaries(health_source: str | None = None) -> tuple[dict[str, d
     overview = health_parser.reports_overview(reports_dir)
     reports = health_parser.load_reports(reports_dir)
     summaries = {
-        report.podling.casefold(): _with_fallback_trends(
+        _podling_key(report.podling): _with_fallback_trends(
             health_parser.summarize_report(report),
             getattr(report, "raw_text", None),
         )
@@ -396,7 +401,7 @@ def load_incubator_reports(report_source: str | None = None) -> tuple[dict[str, 
                     "cached_at": report.cached_at,
                 }
             )
-            by_podling.setdefault(item.podling.casefold(), []).append(entry)
+            by_podling.setdefault(_podling_key(item.podling), []).append(entry)
 
     for entries in by_podling.values():
         entries.sort(key=lambda row: row.get("report_period") or "")
@@ -494,7 +499,7 @@ def _mail_matches_podling(message: dict[str, Any], podling_name: str) -> bool:
     haystack = "\n".join(
         str(message.get(field, "")) for field in ("subject", "from", "message_id", "id", "thread_id")
     ).casefold()
-    return needle in haystack
+    return needle in haystack or _podling_key(podling_name) in _podling_key(haystack)
 
 
 def _mail_unavailable_meta(source: str, reason: str, *, api_base: str | None = None) -> dict[str, Any]:
@@ -543,7 +548,7 @@ def _load_live_incubator_general_mail(
         )
         messages = [message for message in result.get("emails", []) if _mail_matches_podling(message, podling_name)]
         if messages:
-            by_podling[podling_name.casefold()] = messages
+            by_podling[_podling_key(podling_name)] = messages
             message_count += len(messages)
 
     return (
@@ -626,7 +631,7 @@ def load_incubator_general_mail(
             continue
         matches = [message for message in messages if _mail_matches_podling(message, podling_name)]
         if matches:
-            by_podling[podling_name.casefold()] = matches
+            by_podling[_podling_key(podling_name)] = matches
 
     meta = _normalize_mail_source_meta(cached, cache_dir)
     meta["message_count"] = cached.get("count", len(messages))
@@ -803,10 +808,10 @@ def build_records(
 
     records: list[OversightRecord] = []
     requested_podling_name = requested_podling.strip() if requested_podling else None
-    requested_podling_key = requested_podling_name.casefold() if requested_podling_name else None
+    requested_podling_key = _podling_key(requested_podling_name) if requested_podling_name else None
     for podling in podlings:
         podling_name = str(podling.get("name", ""))
-        podling_key = podling_name.casefold()
+        podling_key = _podling_key(podling_name)
         status = str(podling.get("status") or "unknown").lower()
         if not include_non_current and status != "current" and podling_key != requested_podling_key:
             continue
@@ -827,7 +832,7 @@ def build_records(
             )
         )
 
-    record_names = {record.name.casefold() for record in records}
+    record_names = {_podling_key(record.name) for record in records}
     if requested_podling_key and requested_podling_key not in record_names:
         summary = summaries.get(requested_podling_key)
         incubator_reports = report_entries.get(requested_podling_key, [])
