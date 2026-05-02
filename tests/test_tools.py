@@ -616,6 +616,30 @@ class ToolTests(unittest.TestCase):
         assert_explainability(self, payload["explainability"])
         assert_explainability(self, payload["risk_themes"][0]["explainability"])
 
+    def test_community_health_summary_marks_mail_as_intentionally_not_loaded(self) -> None:
+        with make_fixture_sources() as (podlings_source, health_source):
+            payload = tools.tool_community_health_summary(
+                {
+                    "podlings_source": podlings_source,
+                    "health_source": health_source,
+                    "scope": "reporting_podlings",
+                    "as_of_date": "2026-04-18",
+                }
+            )
+
+        self.assertEqual(payload["mail_source"]["source"], "not_loaded")
+        self.assertNotIn(
+            "Cached Incubator general-list messages for all podlings in scope.",
+            payload["explainability"]["missing"],
+        )
+        mail_source = [
+            source
+            for source in payload["explainability"]["source_data_used"]
+            if source["source"] == "apache-incubator-mail"
+        ][0]
+        self.assertEqual(mail_source["fields"], [])
+        self.assertFalse(mail_source["observed"]["loaded"])
+
     def test_community_health_summary_grouping_and_no_examples_paths(self) -> None:
         with make_fixture_sources() as (podlings_source, health_source):
             mentor_load = tools.tool_community_health_summary(

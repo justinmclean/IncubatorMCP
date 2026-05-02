@@ -448,42 +448,47 @@ def _summary_explainability(
     reasoning: list[str],
     *,
     example_podlings: list[str] | None = None,
+    include_mail_evidence: bool = True,
 ) -> dict[str, Any]:
     reporting_records = [record for record in records if record.report_summary is not None]
     incubator_report_records = [record for record in records if record.incubator_reports]
-    incubator_mail_records = [record for record in records if record.incubator_general_mail]
+    incubator_mail_records = (
+        [record for record in records if record.incubator_general_mail] if include_mail_evidence else []
+    )
     missing_health = [record.name for record in records if record.report_summary is None]
     low_mentor = [record.name for record in records if record.mentor_count <= 1]
-    return {
-        "source_data_used": [
-            {
-                "source": "podlings",
-                "fields": ["name", "status", "mentors", "startdate"],
-                "observed": {
-                    "podling_count": len(records),
-                    "thin_mentor_coverage_count": len(low_mentor),
-                    "example_podlings": (example_podlings or [record.name for record in records])[:5],
-                },
+    source_data_used = [
+        {
+            "source": "podlings",
+            "fields": ["name", "status", "mentors", "startdate"],
+            "observed": {
+                "podling_count": len(records),
+                "thin_mentor_coverage_count": len(low_mentor),
+                "example_podlings": (example_podlings or [record.name for record in records])[:5],
             },
-            {
-                "source": "apache-health",
-                "fields": ["preferred health metrics", "reporting metrics"],
-                "observed": {
-                    "reporting_podling_count": len(reporting_records),
-                    "missing_health_report_count": len(missing_health),
-                    "missing_health_report_examples": missing_health[:5],
-                },
+        },
+        {
+            "source": "apache-health",
+            "fields": ["preferred health metrics", "reporting metrics"],
+            "observed": {
+                "reporting_podling_count": len(reporting_records),
+                "missing_health_report_count": len(missing_health),
+                "missing_health_report_examples": missing_health[:5],
             },
-            {
-                "source": "apache-incubator-reports",
-                "fields": ["cached Incubator report entries"],
-                "observed": {
-                    "podling_with_cached_report_count": len(incubator_report_records),
-                    "missing_cached_report_examples": [
-                        record.name for record in records if not record.incubator_reports
-                    ][:5],
-                },
+        },
+        {
+            "source": "apache-incubator-reports",
+            "fields": ["cached Incubator report entries"],
+            "observed": {
+                "podling_with_cached_report_count": len(incubator_report_records),
+                "missing_cached_report_examples": [record.name for record in records if not record.incubator_reports][
+                    :5
+                ],
             },
+        },
+    ]
+    if include_mail_evidence:
+        source_data_used.append(
             {
                 "source": "apache-incubator-mail",
                 "fields": ["cached general@incubator.apache.org message summaries"],
@@ -493,8 +498,22 @@ def _summary_explainability(
                         record.name for record in records if not record.incubator_general_mail
                     ][:5],
                 },
-            },
-        ],
+            }
+        )
+    else:
+        source_data_used.append(
+            {
+                "source": "apache-incubator-mail",
+                "fields": [],
+                "observed": {
+                    "loaded": False,
+                    "reason": "General-list mail evidence was not needed for this summary.",
+                },
+            }
+        )
+
+    return {
+        "source_data_used": source_data_used,
         "reasoning": reasoning,
         "confidence": "high"
         if records and len(reporting_records) == len(records)
@@ -509,9 +528,11 @@ def _summary_explainability(
                     "Cached Incubator report entries for all podlings in scope."
                     if len(incubator_report_records) != len(records)
                     else None,
-                    "Cached Incubator general-list messages for all podlings in scope."
-                    if len(incubator_mail_records) != len(records)
-                    else None,
+                    (
+                        "Cached Incubator general-list messages for all podlings in scope."
+                        if include_mail_evidence and len(incubator_mail_records) != len(records)
+                        else None
+                    ),
                 ]
                 if item
             ]
@@ -1018,6 +1039,7 @@ def tool_reporting_reliability(arguments: dict[str, Any]) -> dict[str, Any]:
                 "Buckets are non-ranked and sorted alphabetically inside each category.",
             ],
             example_podlings=[record.name for record in records[:5]],
+            include_mail_evidence=False,
         ),
     }
 
@@ -1340,6 +1362,7 @@ def tool_reporting_cohort(arguments: dict[str, Any]) -> dict[str, Any]:
                 ),
             ],
             example_podlings=[record.name for record in records[:5]],
+            include_mail_evidence=False,
         ),
     }
 
@@ -1615,6 +1638,7 @@ def tool_community_health_summary(arguments: dict[str, Any]) -> dict[str, Any]:
                     ),
                 ],
                 example_podlings=weak_examples,
+                include_mail_evidence=False,
             ),
         }
         if include_examples:
@@ -1631,6 +1655,7 @@ def tool_community_health_summary(arguments: dict[str, Any]) -> dict[str, Any]:
                     "The theme is raised when mentor coverage suggests IPMC capacity or follow-up risk.",
                 ],
                 example_podlings=mentor_risk,
+                include_mail_evidence=False,
             ),
         }
         if include_examples:
@@ -1686,6 +1711,7 @@ def tool_community_health_summary(arguments: dict[str, Any]) -> dict[str, Any]:
                 f"Grouping requested: {group_by}. Scope requested: {scope}.",
             ],
             example_podlings=watchlist_overlap or mentor_risk or strong_examples,
+            include_mail_evidence=False,
         ),
     }
 
