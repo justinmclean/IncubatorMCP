@@ -338,6 +338,39 @@ class ToolTests(unittest.TestCase):
         self.assertEqual(len(payload["items"]), 1)
         self.assertIn("missing_reports", payload["items"][0]["watch_reasons"])
 
+    def test_ipmc_watchlist_missing_reports_uses_reporting_window(self) -> None:
+        record = OversightRecord(
+            podling={"name": "Reporter", "status": "current", "mentors": ["A", "B"], "startdate": "2025-01-01"},
+            report_summary={"latest_metrics": {"3m": {}, "12m": {}}},
+            preferred_window="3m",
+            preferred_metrics={
+                "commits": 20,
+                "unique_committers": 3,
+                "releases": 1,
+                "dev_unique_posters": 4,
+                "reports_count": 1,
+                "avg_mentor_signoffs": 2.0,
+                "unique_authors": 3,
+                "trends": {},
+            },
+            reporting_window="12m",
+            reporting_metrics={
+                "reports_count": 0,
+                "avg_mentor_signoffs": 2.0,
+            },
+            as_of_date="2026-04-18",
+        )
+        data = {
+            "records": [record],
+            "podlings_source": {"source": "podlings.xml"},
+            "health_source": {"reports_dir": "reports"},
+        }
+        with mock.patch.object(tools, "build_records", return_value=data):
+            payload = tools.tool_ipmc_watchlist({"include_reasons": ["missing_reports"]})
+
+        self.assertEqual([item["podling"] for item in payload["items"]], ["Reporter"])
+        self.assertIn("missing_reports", payload["items"][0]["watch_reasons"])
+
     def test_ipmc_watchlist_handles_no_signals_path(self) -> None:
         record = OversightRecord(
             podling={"name": "Calm", "status": "current", "mentors": ["A", "B"], "startdate": "2026-01-01"},

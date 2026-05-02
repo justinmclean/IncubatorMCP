@@ -45,9 +45,7 @@ MENTORING_CAUSES = {
     "inactive_mentors",
     "missed_reports",
     "weak_releases",
-    "governance_confusion",
     "community_stall",
-    "mentor_overload",
     "low_signoffs",
 }
 WATCHLIST_REASONS = {
@@ -306,11 +304,12 @@ def _limit_sorted_items(
 def _watch_reasons(record: Any, evaluation: dict[str, Any]) -> list[str]:
     reasons: list[str] = []
     metrics = record.preferred_metrics
+    reporting_metrics = record.reporting_metrics
     if metrics is None:
         reasons.append("unknown_status")
     if record.mentor_count <= 1:
         reasons.append("low_mentor_engagement")
-    if metrics and not metrics.get("reports_count"):
+    if reporting_metrics and not reporting_metrics.get("reports_count"):
         reasons.append("missing_reports")
     if metrics and (metrics.get("commits") or 0) <= 10:
         reasons.append("low_community_activity")
