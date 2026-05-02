@@ -43,5 +43,5 @@ coverage:
 check: lint typecheck test
 
 clean:
-	rm -rf .coverage .mypy_cache .ruff_cache htmlcov
+	rm -rf .coverage .mypy_cache .ruff_cache htmlcov *.egg-info
 	find . -type d -name __pycache__ -prune -exec rm -rf {} +
