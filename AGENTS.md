@@ -4,7 +4,7 @@
 
 This repository contains a small dependency-light MCP server for Apache Incubator PMC (IPMC) oversight views.
 
-It composes lifecycle data from the `apache-podlings-mcp` package, health-report data from the `apache-health-mcp` package, cached report data from `apache-incubator-reports-mcp`, and cached general-list mail data from `apache-incubator-mail-mcp` into opinionated Incubator-level tools for podling risk, readiness, mentoring needs, and community-health summaries.
+It composes lifecycle data from the `apache-podlings-mcp` package, health-report data from the `apache-health-mcp` package, cached report data from `apache-incubator-reports-mcp`, cached general-list mail data from `apache-incubator-mail-mcp`, and release artifact data from `apache-incubator-releases-mcp` into opinionated Incubator-level tools for podling risk, readiness, mentoring needs, release visibility, and community-health summaries.
 
 This is an IPMC / Incubator oversight MCP, not a board tool.
 
