@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+import threading
 from dataclasses import asdict, dataclass, field
 from datetime import date
 from pathlib import Path
@@ -36,6 +37,7 @@ DEFAULT_MAIL_SEARCH_TIMESPAN = "lte=12M"
 DEFAULT_MAIL_QUERY_LIMIT = 20
 DEFAULT_RELEASE_DIST_BASE = "https://dist.apache.org/repos/dist/release/incubator"
 DEFAULT_RELEASE_ARCHIVE_BASE = "https://archive.apache.org/dist/incubator"
+RELEASE_PAGE_LINK_LIMIT = 50
 PODLINGS_SOURCE_ENV = "IPMC_PODLINGS_SOURCE"
 HEALTH_SOURCE_ENV = "IPMC_HEALTH_SOURCE"
 REPORT_SOURCE_ENV = "IPMC_REPORT_SOURCE"
@@ -57,6 +59,7 @@ class SourceDefaults:
 
 
 _CONFIGURED_DEFAULTS = SourceDefaults()
+_RELEASE_PAGE_CHECK_PATCH_LOCK = threading.Lock()
 
 PREFERRED_WINDOW_ORDER = ("3m", "6m", "12m", "to-date")
 REPORTING_WINDOW_ORDER = ("12m", "6m", "to-date", "3m")
@@ -363,6 +366,30 @@ def _resolved_release_archive_base(release_archive_base: str | None = None) -> s
         or _env_default(RELEASE_ARCHIVE_BASE_ENV)
         or DEFAULT_RELEASE_ARCHIVE_BASE
     )
+
+
+def _not_requested_release_page_checks(podling: str, release_page_url: str, files: list[Any]) -> dict[str, Any]:
+    return {
+        "location": release_page_url,
+        "available": False,
+        "links": [],
+        "facts": {},
+        "hints": [],
+        "reason": "Release download page checks were not requested.",
+    }
+
+
+def _limit_release_page_check_links(evidence: dict[str, Any]) -> None:
+    checks = evidence.get("release_page_checks")
+    if not isinstance(checks, dict):
+        return
+    links = checks.get("links")
+    if not isinstance(links, list) or len(links) <= RELEASE_PAGE_LINK_LIMIT:
+        return
+    checks["links"] = links[:RELEASE_PAGE_LINK_LIMIT]
+    checks["links_truncated"] = True
+    checks["link_count_returned"] = RELEASE_PAGE_LINK_LIMIT
+    checks["omitted_link_count"] = len(links) - RELEASE_PAGE_LINK_LIMIT
 
 
 def source_defaults() -> dict[str, Any]:
@@ -808,10 +835,11 @@ def load_podling_release_artifacts(
         if dist_base is not None:
             release_kwargs["dist_base"] = dist_base
         release_page_requested = bool(release_page_url)
+        auto_release_page = release_page_url == "auto"
         platform_hints_requested = bool(
             include_platforms or github_project or docker_images or pypi_packages or maven_group_ids
         )
-        if release_page_requested:
+        if release_page_requested and not auto_release_page:
             release_kwargs["release_page_url"] = release_page_url
         if platform_hints_requested:
             release_kwargs |= {
@@ -824,9 +852,17 @@ def load_podling_release_artifacts(
         unsupported_release_page = False
         unsupported_platforms = False
         unsupported_maven = False
+        original_release_page_checks = getattr(incubator_releases, "release_page_checks", None)
         while True:
             try:
-                evidence = incubator_releases.release_overview(podling, **release_kwargs)
+                with _RELEASE_PAGE_CHECK_PATCH_LOCK:
+                    if not release_page_requested and callable(original_release_page_checks):
+                        incubator_releases.release_page_checks = _not_requested_release_page_checks
+                    try:
+                        evidence = incubator_releases.release_overview(podling, **release_kwargs)
+                    finally:
+                        if not release_page_requested and callable(original_release_page_checks):
+                            incubator_releases.release_page_checks = original_release_page_checks
                 break
             except TypeError as exc:
                 message = str(exc)
@@ -887,6 +923,10 @@ def load_podling_release_artifacts(
                     "Update ReleaseMCP to use release_page_url."
                 ),
             }
+        elif not release_page_requested:
+            evidence.pop("release_page_checks", None)
+        else:
+            _limit_release_page_check_links(evidence)
     except Exception as exc:
         return unavailable | {"reason": f"ReleaseMCP dist/archive scan failed: {exc}"}
 

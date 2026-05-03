@@ -622,6 +622,29 @@ class DataTests(unittest.TestCase):
         )
         self.assertEqual(evidence["release_page_checks"], {"available": True, "hints": []})
 
+    def test_load_podling_release_artifacts_auto_release_page_uses_discovery(self) -> None:
+        module = mock.Mock()
+        module.release_overview.return_value = {
+            "podling": "Alpha",
+            "releases": [],
+            "release_page_checks": {
+                "available": True,
+                "location": "https://alpha.incubator.apache.org/download/",
+                "links": [],
+                "hints": [],
+            },
+        }
+
+        with mock.patch.object(data, "incubator_releases", module):
+            evidence = data.load_podling_release_artifacts("Alpha", release_page_url="auto")
+
+        module.release_overview.assert_called_once_with(
+            "Alpha",
+            archive_base=data.DEFAULT_RELEASE_ARCHIVE_BASE,
+            max_depth=1,
+        )
+        self.assertEqual(evidence["release_page_checks"]["location"], "https://alpha.incubator.apache.org/download/")
+
     def test_load_podling_release_artifacts_uses_discovered_dist_source_when_default_unset(self) -> None:
         module = mock.Mock()
         module.release_overview.return_value = {
@@ -639,6 +662,51 @@ class DataTests(unittest.TestCase):
             max_depth=1,
         )
         self.assertEqual(evidence["dist_base"], "https://alpha.incubator.apache.org/download.html")
+
+    def test_load_podling_release_artifacts_suppresses_unrequested_release_page_checks(self) -> None:
+        class ReleaseModule:
+            def release_page_checks(
+                self, podling: str, release_page_url: str, files: list[object]
+            ) -> dict[str, object]:
+                return {"available": True, "links": [{"href": "large"}], "hints": ["checked"]}
+
+            def release_overview(self, podling: str, **kwargs: object) -> dict[str, object]:
+                return {
+                    "podling": podling,
+                    "sources": {"dist": "https://alpha.incubator.apache.org/download.html"},
+                    "releases": [],
+                    "release_page_checks": self.release_page_checks(
+                        podling, "https://alpha.incubator.apache.org/download.html", []
+                    ),
+                }
+
+        module = ReleaseModule()
+        original_checks = type(module).release_page_checks
+
+        with mock.patch.object(data, "incubator_releases", module):
+            evidence = data.load_podling_release_artifacts("Alpha")
+
+        self.assertNotIn("release_page_checks", evidence)
+        self.assertIs(type(module).release_page_checks, original_checks)
+
+    def test_load_podling_release_artifacts_limits_requested_release_page_links(self) -> None:
+        links = [{"href": str(index)} for index in range(data.RELEASE_PAGE_LINK_LIMIT + 2)]
+        module = mock.Mock()
+        module.release_overview.return_value = {
+            "podling": "Alpha",
+            "releases": [],
+            "release_page_checks": {"available": True, "links": links, "hints": []},
+        }
+
+        with mock.patch.object(data, "incubator_releases", module):
+            evidence = data.load_podling_release_artifacts(
+                "Alpha", release_page_url="https://alpha.apache.org/downloads"
+            )
+
+        checks = evidence["release_page_checks"]
+        self.assertEqual(len(checks["links"]), data.RELEASE_PAGE_LINK_LIMIT)
+        self.assertTrue(checks["links_truncated"])
+        self.assertEqual(checks["omitted_link_count"], 2)
 
     def test_load_podling_release_artifacts_falls_back_for_old_release_mcp(self) -> None:
         module = mock.Mock()

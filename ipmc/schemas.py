@@ -47,7 +47,9 @@ INCLUDE_PLATFORMS_PROPERTY = {
 }
 RELEASE_PAGE_URL_PROPERTY = {
     "type": "string",
-    "description": "Optional Apache project release download page URL or local HTML file to inspect",
+    "description": (
+        "Optional Apache project release download page URL or local HTML file to inspect; use 'auto' to discover it"
+    ),
 }
 GITHUB_PROJECT_PROPERTY = {
     "type": "string",

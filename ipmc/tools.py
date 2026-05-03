@@ -221,7 +221,9 @@ def _release_page_checks(evidence: dict[str, Any], *, requested: bool) -> dict[s
     return {
         "included": False,
         "available": False,
-        "reason": "Release download page checks were not requested; pass release_page_url to fetch them.",
+        "reason": (
+            "Release download page checks were not requested; pass release_page_url='auto' or a URL to fetch them."
+        ),
     }
 
 

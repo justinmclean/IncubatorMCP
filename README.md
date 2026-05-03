@@ -316,7 +316,7 @@ Arguments:
 - `podling`: required podling name
 - `release_dist_base`: optional current release base URL or local release directory; when omitted, ReleaseMCP discovers the podling download page
 - `release_max_depth`: optional traversal depth under the podling directory, defaults to `1`; use `0` for a shallower scan
-- `release_page_url`: optional Apache project release download page URL or local HTML file to inspect
+- `release_page_url`: optional Apache project release download page URL or local HTML file to inspect; use `auto` to let ReleaseMCP discover the page
 - `include_platforms`: optional boolean; when true, asks ReleaseMCP to include GitHub, Docker Hub, PyPI, and Maven distribution hints
 - `github_project`: optional apache/<project> GitHub repository name; defaults to the podling slug in ReleaseMCP
 - `docker_images`: optional Docker Hub image names in namespace/repository form
@@ -325,6 +325,7 @@ Arguments:
 
 When platform checks are not requested, the `platform_distribution_checks` response field is an explicit not-requested status rather than `null`.
 When release page checks are not requested, the `release_page_checks` response field is also an explicit not-requested status.
+Pass `release_page_url: "auto"` to request release download page checks without supplying the page URL.
 
 ### `refresh_report_cache`
 

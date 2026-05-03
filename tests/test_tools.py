@@ -1192,7 +1192,10 @@ class ToolTests(unittest.TestCase):
             {
                 "included": False,
                 "available": False,
-                "reason": "Release download page checks were not requested; pass release_page_url to fetch them.",
+                "reason": (
+                    "Release download page checks were not requested; "
+                    "pass release_page_url='auto' or a URL to fetch them."
+                ),
             },
         )
 
@@ -1275,6 +1278,33 @@ class ToolTests(unittest.TestCase):
             "Review release download page guidance hints alongside release artifact evidence.",
         )
         self.assertIn("Release download page checks were included", payload["summary"])
+
+    def test_release_artifact_evidence_can_auto_discover_release_page_checks(self) -> None:
+        evidence = {
+            "source": "apache-incubator-releases",
+            "available": True,
+            "release_count": 1,
+            "source_artifact_count": 1,
+            "signature_count": 1,
+            "checksum_count": 1,
+            "releases": [],
+            "release_page_checks": {
+                "available": True,
+                "location": "https://shipping.incubator.apache.org/download/",
+                "hints": [],
+            },
+        }
+        with mock.patch.object(tools, "load_podling_release_artifacts", return_value=evidence) as load_artifacts:
+            payload = tools.tool_release_artifact_evidence(
+                {
+                    "podling": "Shipping",
+                    "release_page_url": "auto",
+                }
+            )
+
+        self.assertEqual(load_artifacts.call_args.kwargs["release_page_url"], "auto")
+        self.assertTrue(payload["release_page_checks"]["included"])
+        self.assertEqual(payload["release_page_checks"]["location"], "https://shipping.incubator.apache.org/download/")
 
     def test_release_artifact_evidence_defaults_to_one_level_release_scan(self) -> None:
         evidence = {
