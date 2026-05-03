@@ -775,6 +775,10 @@ def load_podling_release_artifacts(
     release_dist_base: str | None = None,
     release_archive_base: str | None = None,
     max_depth: int = 1,
+    include_platforms: bool = False,
+    github_project: str | None = None,
+    docker_images: list[str] | None = None,
+    pypi_packages: list[str] | None = None,
 ) -> dict[str, Any]:
     dist_base = _resolved_release_dist_base(release_dist_base)
     archive_base = _resolved_release_archive_base(release_archive_base)
@@ -800,12 +804,19 @@ def load_podling_release_artifacts(
         }
 
     try:
-        evidence = incubator_releases.release_overview(
-            podling,
-            dist_base=dist_base,
-            archive_base=archive_base,
-            max_depth=max_depth,
-        )
+        release_kwargs: dict[str, Any] = {
+            "dist_base": dist_base,
+            "archive_base": archive_base,
+            "max_depth": max_depth,
+        }
+        if include_platforms or github_project or docker_images or pypi_packages:
+            release_kwargs |= {
+                "include_platforms": include_platforms,
+                "github_project": github_project,
+                "docker_images": docker_images,
+                "pypi_packages": pypi_packages,
+            }
+        evidence = incubator_releases.release_overview(podling, **release_kwargs)
     except Exception as exc:
         return unavailable | {"reason": f"ReleaseMCP dist/archive scan failed: {exc}"}
 

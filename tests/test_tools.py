@@ -1162,6 +1162,10 @@ class ToolTests(unittest.TestCase):
             release_dist_base="/tmp/dist",
             release_archive_base="/tmp/archive",
             max_depth=0,
+            include_platforms=False,
+            github_project=None,
+            docker_images=None,
+            pypi_packages=None,
         )
         self.assertEqual(payload["generated_for"], "release_artifact_evidence")
         self.assertEqual(payload["observed"]["release_count"], 1)
@@ -1173,6 +1177,49 @@ class ToolTests(unittest.TestCase):
         self.assertTrue(payload["explainability"]["source_data_used"])
         self.assertTrue(payload["explainability"]["reasoning"])
         self.assertEqual(payload["explainability"]["confidence"], "medium")
+
+    def test_release_artifact_evidence_includes_optional_platform_hints(self) -> None:
+        platform_checks = {
+            "guidelines": "https://incubator.apache.org/guides/distribution.html",
+            "github": {"available": True, "release_count": 1},
+            "docker_hub": [{"image": "apache/shipping", "available": True}],
+            "pypi": [{"package": "apache-shipping", "available": True}],
+            "hints": {"github": ["Confirm release context."], "docker_hub": [], "pypi": []},
+        }
+        evidence = {
+            "source": "apache-incubator-releases",
+            "available": True,
+            "release_count": 0,
+            "source_artifact_count": 0,
+            "signature_count": 0,
+            "checksum_count": 0,
+            "releases": [],
+            "platform_distribution_checks": platform_checks,
+        }
+        with mock.patch.object(tools, "load_podling_release_artifacts", return_value=evidence) as load_artifacts:
+            payload = tools.tool_release_artifact_evidence(
+                {
+                    "podling": "Shipping",
+                    "include_platforms": True,
+                    "github_project": "shipping",
+                    "docker_images": ["apache/shipping"],
+                    "pypi_packages": ["apache-shipping"],
+                }
+            )
+
+        load_artifacts.assert_called_once_with(
+            "Shipping",
+            release_dist_base=None,
+            release_archive_base=None,
+            max_depth=1,
+            include_platforms=True,
+            github_project="shipping",
+            docker_images=["apache/shipping"],
+            pypi_packages=["apache-shipping"],
+        )
+        self.assertEqual(payload["platform_distribution_checks"], platform_checks)
+        self.assertTrue(payload["explainability"]["source_data_used"][0]["platform_distribution_checks_available"])
+        self.assertIn("distribution hints", payload["summary"])
 
     def test_release_artifact_evidence_defaults_to_one_level_release_scan(self) -> None:
         evidence = {

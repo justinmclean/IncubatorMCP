@@ -9,7 +9,7 @@ It composes:
 - cached Incubator report entries from `apache-incubator-reports-mcp`
 - cached Incubator general-list messages from `apache-incubator-mail-mcp`
 - live Incubator release vote/result thread evidence from `apache-incubator-mail-mcp`
-- release artifact, signature, checksum, and cadence evidence from `apache-incubator-releases-mcp`
+- release artifact, signature, checksum, cadence, and optional platform-distribution evidence from `apache-incubator-releases-mcp`
 
 It exposes opinionated Incubator-level tools to help the IPMC:
 
@@ -309,12 +309,16 @@ Arguments:
 
 ### `release_artifact_evidence`
 
-Return ReleaseMCP artifact, signature, checksum, cadence, and Incubator naming evidence for one podling.
+Return ReleaseMCP artifact, signature, checksum, cadence, Incubator naming evidence, and optional GitHub, Docker Hub, and PyPI distribution hints for one podling.
 
 Arguments:
 
 - `podling`: required podling name
 - `release_max_depth`: optional traversal depth under the podling directory, defaults to `1`; use `0` for a shallower scan
+- `include_platforms`: optional boolean; when true, asks ReleaseMCP to include GitHub, Docker Hub, and PyPI distribution hints
+- `github_project`: optional apache/<project> GitHub repository name; defaults to the podling slug in ReleaseMCP
+- `docker_images`: optional Docker Hub image names in namespace/repository form
+- `pypi_packages`: optional PyPI package names; defaults to apache-<podling> in ReleaseMCP
 
 ### `refresh_report_cache`
 

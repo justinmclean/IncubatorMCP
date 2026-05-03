@@ -38,6 +38,24 @@ RELEASE_MAX_DEPTH_PROPERTY = {
     "type": "integer",
     "description": "Maximum ReleaseMCP traversal depth under the podling directory; defaults to 1",
 }
+INCLUDE_PLATFORMS_PROPERTY = {
+    "type": "boolean",
+    "description": "Fetch optional ReleaseMCP GitHub, Docker Hub, and PyPI distribution hints",
+}
+GITHUB_PROJECT_PROPERTY = {
+    "type": "string",
+    "description": "Optional apache/<project> GitHub repository name; defaults to the podling slug",
+}
+DOCKER_IMAGES_PROPERTY = {
+    "type": "array",
+    "items": {"type": "string"},
+    "description": "Optional Docker Hub image names in namespace/repository form",
+}
+PYPI_PACKAGES_PROPERTY = {
+    "type": "array",
+    "items": {"type": "string"},
+    "description": "Optional PyPI package names; defaults to apache-<podling>",
+}
 AS_OF_DATE_PROPERTY = {
     "type": "string",
     "description": "Optional YYYY-MM-DD date to evaluate data as of a specific day",
@@ -275,6 +293,10 @@ def release_artifact_evidence_properties() -> dict[str, Any]:
         "release_dist_base": RELEASE_DIST_BASE_PROPERTY,
         "release_archive_base": RELEASE_ARCHIVE_BASE_PROPERTY,
         "release_max_depth": RELEASE_MAX_DEPTH_PROPERTY,
+        "include_platforms": INCLUDE_PLATFORMS_PROPERTY,
+        "github_project": GITHUB_PROJECT_PROPERTY,
+        "docker_images": DOCKER_IMAGES_PROPERTY,
+        "pypi_packages": PYPI_PACKAGES_PROPERTY,
         "podling": PODLING_PROPERTY,
     }
 

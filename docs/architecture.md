@@ -10,7 +10,7 @@ It does not replace the source MCPs. Instead, it composes:
 - `apache-health-mcp` for parsed health-report metrics
 - `apache-incubator-reports-mcp` for cached Incubator report entries
 - `apache-incubator-mail-mcp` for cached Incubator general-list message summaries and live release vote/result thread evidence
-- `apache-incubator-releases-mcp` for release artifact, signature, checksum, cadence, and Incubator naming evidence
+- `apache-incubator-releases-mcp` for release artifact, signature, checksum, cadence, Incubator naming evidence, and optional platform-distribution hints
 
 The resulting tools provide IPMC-oriented synthesis: recent-change scans, reporting-gap checks, reporting-reliability patterns, release-visibility checks, release vote evidence, release artifact evidence, stalled-podling detection, watchlists, graduation readiness, podling briefs, mentoring attention, and community-health summaries.
 
@@ -44,7 +44,7 @@ It:
 - loads ReportMCP podling report entries when cached reports are available
 - loads MailMCP general-list message summaries when a tool needs them; if the default cache is missing, this uses read-only live MailMCP search
 - loads MailMCP release vote/result thread history for the `release_vote_evidence` tool only
-- loads ReleaseMCP artifact/cadence evidence for the `release_artifact_evidence` tool only
+- loads ReleaseMCP artifact/cadence evidence, and optional GitHub/Docker Hub/PyPI distribution hints, for the `release_artifact_evidence` tool only
 - refreshes ReportMCP and MailMCP caches through explicit cache tools
 - joins source data into `OversightRecord` objects
 - supports targeted single-podling fallback records when a requested podling is absent from the current podlings set but present in cached report, health, or mail source data

@@ -177,6 +177,20 @@ def optional_list_of_choices(arguments: dict[str, Any], key: str, choices: set[s
     return resolved
 
 
+def optional_string_list(arguments: dict[str, Any], key: str) -> list[str] | None:
+    value = arguments.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, list):
+        raise ValueError(f"'{key}' must be a list")
+    resolved: list[str] = []
+    for item in value:
+        if not isinstance(item, str) or not item.strip():
+            raise ValueError(f"'{key}' entries must be non-empty strings")
+        resolved.append(item.strip())
+    return resolved
+
+
 def _resolve_sources(arguments: dict[str, Any]) -> dict[str, Any]:
     return {
         "podlings_source": optional_string(arguments, "podlings_source"),
@@ -1165,15 +1179,24 @@ def tool_release_artifact_evidence(arguments: dict[str, Any]) -> dict[str, Any]:
     release_dist_base = optional_string(arguments, "release_dist_base")
     release_archive_base = optional_string(arguments, "release_archive_base")
     release_max_depth = optional_depth(arguments, "release_max_depth")
+    include_platforms = optional_boolean(arguments, "include_platforms", False) or False
+    github_project = optional_string(arguments, "github_project")
+    docker_images = optional_string_list(arguments, "docker_images")
+    pypi_packages = optional_string_list(arguments, "pypi_packages")
 
     evidence = load_podling_release_artifacts(
         podling,
         release_dist_base=release_dist_base,
         release_archive_base=release_archive_base,
         max_depth=release_max_depth,
+        include_platforms=include_platforms,
+        github_project=github_project,
+        docker_images=docker_images,
+        pypi_packages=pypi_packages,
     )
     cadence = evidence.get("cadence") or {}
     releases = evidence.get("releases") or []
+    platform_checks = evidence.get("platform_distribution_checks")
     missing_sidecars = []
     for release in releases:
         for artifact in release.get("source_artifacts") or []:
@@ -1188,10 +1211,14 @@ def tool_release_artifact_evidence(arguments: dict[str, Any]) -> dict[str, Any]:
         f"ReleaseMCP found {release_count} release group(s) and "
         f"{evidence.get('source_artifact_count', 0)} source artifact(s) for {podling}."
     )
+    if platform_checks:
+        summary += " Optional GitHub, Docker Hub, and PyPI distribution hints were included."
 
     recommended_action = "Compare ReleaseMCP artifact evidence with recent vote evidence and release visibility."
     if not evidence.get("available"):
         recommended_action = "Check ReleaseMCP availability or release source configuration."
+    elif platform_checks:
+        recommended_action = "Review release artifact evidence and platform distribution hints together."
     elif missing_sidecars or hint_text:
         recommended_action = "Review release artifact sidecars and Incubator naming/disclaimer hints."
 
@@ -1218,6 +1245,7 @@ def tool_release_artifact_evidence(arguments: dict[str, Any]) -> dict[str, Any]:
         "releases": releases,
         "missing_sidecars": missing_sidecars,
         "incubating_hints": incubating_hints,
+        "platform_distribution_checks": platform_checks,
         "summary": summary,
         "recommended_ipmc_action": recommended_action,
         "explainability": {
@@ -1227,6 +1255,7 @@ def tool_release_artifact_evidence(arguments: dict[str, Any]) -> dict[str, Any]:
                     "available": bool(evidence.get("available")),
                     "release_count": release_count,
                     "source_artifact_count": evidence.get("source_artifact_count", 0),
+                    "platform_distribution_checks_available": bool(platform_checks),
                 }
             ],
             "reasoning": [
@@ -1780,7 +1809,10 @@ TOOLS: dict[str, dict[str, Any]] = {
         required=["podling"],
     ),
     "release_artifact_evidence": schemas.tool_definition(
-        description=("Return ReleaseMCP artifact, sidecar, cadence, and Incubator naming evidence for one podling."),
+        description=(
+            "Return ReleaseMCP artifact, sidecar, cadence, Incubator naming evidence, "
+            "and optional GitHub/Docker Hub/PyPI distribution hints for one podling."
+        ),
         handler=tool_release_artifact_evidence,
         properties=schemas.release_artifact_evidence_properties(),
         required=["podling"],

@@ -570,6 +570,36 @@ class DataTests(unittest.TestCase):
         self.assertEqual(evidence["source"], "apache-incubator-releases")
         self.assertEqual(evidence["release_count"], 1)
 
+    def test_load_podling_release_artifacts_passes_optional_platform_hints(self) -> None:
+        module = mock.Mock()
+        module.release_overview.return_value = {
+            "podling": "Alpha",
+            "releases": [],
+            "platform_distribution_checks": {"hints": {"github": []}},
+        }
+
+        with mock.patch.object(data, "incubator_releases", module):
+            evidence = data.load_podling_release_artifacts(
+                "Alpha",
+                include_platforms=True,
+                github_project="alpha-project",
+                docker_images=["apache/alpha"],
+                pypi_packages=["apache-alpha"],
+            )
+
+        module.release_overview.assert_called_once_with(
+            "Alpha",
+            dist_base=data.DEFAULT_RELEASE_DIST_BASE,
+            archive_base=data.DEFAULT_RELEASE_ARCHIVE_BASE,
+            max_depth=1,
+            include_platforms=True,
+            github_project="alpha-project",
+            docker_images=["apache/alpha"],
+            pypi_packages=["apache-alpha"],
+        )
+        self.assertTrue(evidence["available"])
+        self.assertEqual(evidence["platform_distribution_checks"], {"hints": {"github": []}})
+
     def test_load_podling_release_artifacts_defaults_to_one_level_scan(self) -> None:
         module = mock.Mock()
         module.release_overview.return_value = {
