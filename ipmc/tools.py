@@ -1308,7 +1308,7 @@ def tool_release_artifact_evidence(arguments: dict[str, Any]) -> dict[str, Any]:
             ],
             "reasoning": [
                 summary,
-                "Release artifact evidence comes from ReleaseMCP dist/archive inspection.",
+                "Release artifact evidence comes from ReleaseMCP current/archive inspection.",
                 "Release download page evidence comes from ReleaseMCP when release_page_url is provided.",
                 "Use release_visibility when apache-health/report-derived release signals are needed.",
             ],

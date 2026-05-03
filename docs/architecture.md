@@ -38,7 +38,7 @@ It:
 - resolves cached Incubator reports from the tool `report_source`, `--report-source`, `IPMC_REPORT_SOURCE`, or `.cache/incubator-reports`
 - resolves cached Incubator general-list mail from the tool `mail_source`, `--mail-source`, `IPMC_MAIL_SOURCE`, or `.cache/incubator-general-mail`
 - resolves the live MailMCP/Pony Mail API base from the tool `mail_api_base`, `--mail-api-base`, `IPMC_MAIL_API_BASE`, or the public lists.apache.org API
-- resolves ReleaseMCP dist/archive sources from tool arguments, startup defaults, environment variables, or public ASF URLs
+- resolves ReleaseMCP current/archive sources from tool arguments, startup defaults, and environment variables; when no current release source is configured, ReleaseMCP discovers the podling download page
 - loads podling lifecycle records
 - loads health report summaries
 - loads ReportMCP podling report entries when cached reports are available

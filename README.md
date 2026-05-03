@@ -115,7 +115,7 @@ Configure startup defaults with command-line arguments or environment variables:
 - `--report-source` or `IPMC_REPORT_SOURCE`: local path for ReportMCP cached ASF Incubator report files
 - `--mail-source` or `IPMC_MAIL_SOURCE`: local path for MailMCP cached ASF Incubator general-list message files
 - `--mail-api-base` or `IPMC_MAIL_API_BASE`: MailMCP/Pony Mail API base URL for live Incubator general-list search
-- `--release-dist-base` or `IPMC_RELEASE_DIST_BASE`: ReleaseMCP `dist.apache.org` base URL or local release directory
+- `--release-dist-base` or `IPMC_RELEASE_DIST_BASE`: optional ReleaseMCP current release base URL or local release directory; when unset, ReleaseMCP discovers the podling download page
 - `--release-archive-base` or `IPMC_RELEASE_ARCHIVE_BASE`: ReleaseMCP `archive.apache.org` base URL or local archive directory
 - `--http`: serve JSON-RPC/MCP over HTTP instead of stdio
 - `--host`: HTTP bind host when `--http` is set; defaults to `127.0.0.1`
@@ -314,6 +314,7 @@ Return ReleaseMCP artifact, signature, checksum, cadence, Incubator naming evide
 Arguments:
 
 - `podling`: required podling name
+- `release_dist_base`: optional current release base URL or local release directory; when omitted, ReleaseMCP discovers the podling download page
 - `release_max_depth`: optional traversal depth under the podling directory, defaults to `1`; use `0` for a shallower scan
 - `release_page_url`: optional Apache project release download page URL or local HTML file to inspect
 - `include_platforms`: optional boolean; when true, asks ReleaseMCP to include GitHub, Docker Hub, PyPI, and Maven distribution hints
@@ -456,7 +457,7 @@ Arguments:
 - When omitted, `report_source` uses `--report-source`, `IPMC_REPORT_SOURCE`, or `.cache/incubator-reports` if no startup default is set.
 - When omitted, `mail_source` uses `--mail-source`, `IPMC_MAIL_SOURCE`, or `.cache/incubator-general-mail` if no startup default is set. If the default cache is missing, IPMC tools use live MailMCP search as a read-only fallback.
 - When omitted, `mail_api_base` uses `--mail-api-base`, `IPMC_MAIL_API_BASE`, or the public lists.apache.org API.
-- When omitted, `release_dist_base` uses `--release-dist-base`, `IPMC_RELEASE_DIST_BASE`, or the public Incubator dist release URL.
+- When omitted, `release_dist_base` uses `--release-dist-base` or `IPMC_RELEASE_DIST_BASE`; if neither is set, ReleaseMCP discovers the podling download page instead of forcing the public Incubator dist release URL.
 - When omitted, `release_archive_base` uses `--release-archive-base`, `IPMC_RELEASE_ARCHIVE_BASE`, or the public Incubator archive URL.
 - Oversight views focus on current podlings by default.
 - Single-podling lookups can still return non-current or report-cache-only podlings when matching source data is available.

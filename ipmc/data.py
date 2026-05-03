@@ -352,13 +352,8 @@ def _resolved_mail_api_base(mail_api_base: str | None = None) -> str:
     )
 
 
-def _resolved_release_dist_base(release_dist_base: str | None = None) -> str:
-    return (
-        release_dist_base
-        or _CONFIGURED_DEFAULTS.release_dist_base
-        or _env_default(RELEASE_DIST_BASE_ENV)
-        or DEFAULT_RELEASE_DIST_BASE
-    )
+def _resolved_release_dist_base(release_dist_base: str | None = None) -> str | None:
+    return release_dist_base or _CONFIGURED_DEFAULTS.release_dist_base or _env_default(RELEASE_DIST_BASE_ENV)
 
 
 def _resolved_release_archive_base(release_archive_base: str | None = None) -> str:
@@ -733,7 +728,7 @@ def load_podling_release_vote_history(
 ) -> dict[str, Any]:
     api_base = _resolved_mail_api_base(mail_api_base)
     resolved_timespan = timespan or DEFAULT_MAIL_SEARCH_TIMESPAN
-    unavailable = {
+    unavailable: dict[str, Any] = {
         "podling": podling,
         "source": "apache-incubator-mail",
         "api_base": api_base,
@@ -784,7 +779,7 @@ def load_podling_release_artifacts(
 ) -> dict[str, Any]:
     dist_base = _resolved_release_dist_base(release_dist_base)
     archive_base = _resolved_release_archive_base(release_archive_base)
-    unavailable = {
+    unavailable: dict[str, Any] = {
         "podling": podling,
         "source": "apache-incubator-releases",
         "dist_base": dist_base,
@@ -807,10 +802,11 @@ def load_podling_release_artifacts(
 
     try:
         release_kwargs: dict[str, Any] = {
-            "dist_base": dist_base,
             "archive_base": archive_base,
             "max_depth": max_depth,
         }
+        if dist_base is not None:
+            release_kwargs["dist_base"] = dist_base
         release_page_requested = bool(release_page_url)
         platform_hints_requested = bool(
             include_platforms or github_project or docker_images or pypi_packages or maven_group_ids
@@ -895,7 +891,7 @@ def load_podling_release_artifacts(
         return unavailable | {"reason": f"ReleaseMCP dist/archive scan failed: {exc}"}
 
     evidence["source"] = "apache-incubator-releases"
-    evidence["dist_base"] = dist_base
+    evidence["dist_base"] = (evidence.get("sources") or {}).get("dist") or dist_base
     evidence["archive_base"] = archive_base
     evidence["available"] = True
     evidence.setdefault("release_count", len(evidence.get("releases") or []))

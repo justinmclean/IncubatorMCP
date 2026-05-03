@@ -28,7 +28,10 @@ MAIL_TIMESPAN_PROPERTY = {
 }
 RELEASE_DIST_BASE_PROPERTY = {
     "type": "string",
-    "description": "Optional ReleaseMCP dist.apache.org base URL or local release directory",
+    "description": (
+        "Optional ReleaseMCP current release base URL or local release directory; "
+        "when omitted, ReleaseMCP discovers the podling download page"
+    ),
 }
 RELEASE_ARCHIVE_BASE_PROPERTY = {
     "type": "string",

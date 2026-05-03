@@ -345,7 +345,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--report-source", help="Path to ReportMCP cached ASF Incubator report files")
     parser.add_argument("--mail-source", help="Path to MailMCP cached ASF Incubator general-list message files")
     parser.add_argument("--mail-api-base", help="MailMCP/Pony Mail API base URL for live Incubator general-list search")
-    parser.add_argument("--release-dist-base", help="ReleaseMCP dist.apache.org base URL or local release directory")
+    parser.add_argument(
+        "--release-dist-base",
+        help=(
+            "ReleaseMCP current release base URL or local release directory; "
+            "when omitted, ReleaseMCP discovers the podling download page"
+        ),
+    )
     parser.add_argument(
         "--release-archive-base",
         help="ReleaseMCP archive.apache.org base URL or local archive directory",
