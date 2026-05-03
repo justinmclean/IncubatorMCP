@@ -1162,10 +1162,12 @@ class ToolTests(unittest.TestCase):
             release_dist_base="/tmp/dist",
             release_archive_base="/tmp/archive",
             max_depth=0,
+            release_page_url=None,
             include_platforms=False,
             github_project=None,
             docker_images=None,
             pypi_packages=None,
+            maven_group_ids=None,
         )
         self.assertEqual(payload["generated_for"], "release_artifact_evidence")
         self.assertEqual(payload["observed"]["release_count"], 1)
@@ -1185,6 +1187,14 @@ class ToolTests(unittest.TestCase):
                 "reason": "Platform distribution checks were not requested; pass include_platforms=true to fetch them.",
             },
         )
+        self.assertEqual(
+            payload["release_page_checks"],
+            {
+                "included": False,
+                "available": False,
+                "reason": "Release download page checks were not requested; pass release_page_url to fetch them.",
+            },
+        )
 
     def test_release_artifact_evidence_includes_optional_platform_hints(self) -> None:
         platform_checks = {
@@ -1192,7 +1202,8 @@ class ToolTests(unittest.TestCase):
             "github": {"available": True, "release_count": 1},
             "docker_hub": [{"image": "apache/shipping", "available": True}],
             "pypi": [{"package": "apache-shipping", "available": True}],
-            "hints": {"github": ["Confirm release context."], "docker_hub": [], "pypi": []},
+            "maven": [{"group_id": "org.apache.shipping", "available": True, "artifacts": []}],
+            "hints": {"github": ["Confirm release context."], "docker_hub": [], "pypi": [], "maven": []},
         }
         evidence = {
             "source": "apache-incubator-releases",
@@ -1212,6 +1223,7 @@ class ToolTests(unittest.TestCase):
                     "github_project": "shipping",
                     "docker_images": ["apache/shipping"],
                     "pypi_packages": ["apache-shipping"],
+                    "maven_group_ids": ["org.apache.shipping"],
                 }
             )
 
@@ -1220,16 +1232,49 @@ class ToolTests(unittest.TestCase):
             release_dist_base=None,
             release_archive_base=None,
             max_depth=1,
+            release_page_url=None,
             include_platforms=True,
             github_project="shipping",
             docker_images=["apache/shipping"],
             pypi_packages=["apache-shipping"],
+            maven_group_ids=["org.apache.shipping"],
         )
         self.assertEqual(
             payload["platform_distribution_checks"], {"included": True, "available": True, **platform_checks}
         )
         self.assertTrue(payload["explainability"]["source_data_used"][0]["platform_distribution_checks_available"])
         self.assertIn("distribution hints", payload["summary"])
+
+    def test_release_artifact_evidence_includes_release_page_checks(self) -> None:
+        evidence = {
+            "source": "apache-incubator-releases",
+            "available": True,
+            "release_count": 1,
+            "source_artifact_count": 1,
+            "signature_count": 1,
+            "checksum_count": 1,
+            "releases": [],
+            "release_page_checks": {
+                "available": True,
+                "location": "https://shipping.apache.org/downloads",
+                "hints": ["No HTTPS KEYS link to downloads.apache.org was found."],
+            },
+        }
+        with mock.patch.object(tools, "load_podling_release_artifacts", return_value=evidence) as load_artifacts:
+            payload = tools.tool_release_artifact_evidence(
+                {
+                    "podling": "Shipping",
+                    "release_page_url": "https://shipping.apache.org/downloads",
+                }
+            )
+
+        self.assertEqual(load_artifacts.call_args.kwargs["release_page_url"], "https://shipping.apache.org/downloads")
+        self.assertTrue(payload["release_page_checks"]["included"])
+        self.assertEqual(
+            payload["recommended_ipmc_action"],
+            "Review release download page guidance hints alongside release artifact evidence.",
+        )
+        self.assertIn("Release download page checks were included", payload["summary"])
 
     def test_release_artifact_evidence_defaults_to_one_level_release_scan(self) -> None:
         evidence = {

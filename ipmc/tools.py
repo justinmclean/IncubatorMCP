@@ -208,6 +208,23 @@ def _platform_distribution_checks(evidence: dict[str, Any], *, requested: bool) 
     }
 
 
+def _release_page_checks(evidence: dict[str, Any], *, requested: bool) -> dict[str, Any]:
+    page_checks = evidence.get("release_page_checks")
+    if isinstance(page_checks, dict):
+        return {"included": True, "available": bool(page_checks.get("available", True)), **page_checks}
+    if requested:
+        return {
+            "included": True,
+            "available": False,
+            "reason": "ReleaseMCP did not return release download page checks.",
+        }
+    return {
+        "included": False,
+        "available": False,
+        "reason": "Release download page checks were not requested; pass release_page_url to fetch them.",
+    }
+
+
 def _resolve_sources(arguments: dict[str, Any]) -> dict[str, Any]:
     return {
         "podlings_source": optional_string(arguments, "podlings_source"),
@@ -1196,24 +1213,31 @@ def tool_release_artifact_evidence(arguments: dict[str, Any]) -> dict[str, Any]:
     release_dist_base = optional_string(arguments, "release_dist_base")
     release_archive_base = optional_string(arguments, "release_archive_base")
     release_max_depth = optional_depth(arguments, "release_max_depth")
+    release_page_url = optional_string(arguments, "release_page_url")
     include_platforms = optional_boolean(arguments, "include_platforms", False) or False
     github_project = optional_string(arguments, "github_project")
     docker_images = optional_string_list(arguments, "docker_images")
     pypi_packages = optional_string_list(arguments, "pypi_packages")
-    platform_hints_requested = bool(include_platforms or github_project or docker_images or pypi_packages)
+    maven_group_ids = optional_string_list(arguments, "maven_group_ids")
+    platform_hints_requested = bool(
+        include_platforms or github_project or docker_images or pypi_packages or maven_group_ids
+    )
 
     evidence = load_podling_release_artifacts(
         podling,
         release_dist_base=release_dist_base,
         release_archive_base=release_archive_base,
         max_depth=release_max_depth,
+        release_page_url=release_page_url,
         include_platforms=include_platforms,
         github_project=github_project,
         docker_images=docker_images,
         pypi_packages=pypi_packages,
+        maven_group_ids=maven_group_ids,
     )
     cadence = evidence.get("cadence") or {}
     releases = evidence.get("releases") or []
+    page_checks = _release_page_checks(evidence, requested=bool(release_page_url))
     platform_checks = _platform_distribution_checks(evidence, requested=platform_hints_requested)
     missing_sidecars = []
     for release in releases:
@@ -1230,11 +1254,15 @@ def tool_release_artifact_evidence(arguments: dict[str, Any]) -> dict[str, Any]:
         f"{evidence.get('source_artifact_count', 0)} source artifact(s) for {podling}."
     )
     if platform_checks.get("included"):
-        summary += " Optional GitHub, Docker Hub, and PyPI distribution hints were included."
+        summary += " Optional GitHub, Docker Hub, PyPI, and Maven distribution hints were included."
+    if page_checks.get("included"):
+        summary += " Release download page checks were included."
 
     recommended_action = "Compare ReleaseMCP artifact evidence with recent vote evidence and release visibility."
     if not evidence.get("available"):
         recommended_action = "Check ReleaseMCP availability or release source configuration."
+    elif page_checks.get("included") and (not page_checks.get("available") or page_checks.get("hints")):
+        recommended_action = "Review release download page guidance hints alongside release artifact evidence."
     elif platform_checks.get("included"):
         recommended_action = "Review release artifact evidence and platform distribution hints together."
     elif missing_sidecars or hint_text:
@@ -1263,6 +1291,7 @@ def tool_release_artifact_evidence(arguments: dict[str, Any]) -> dict[str, Any]:
         "releases": releases,
         "missing_sidecars": missing_sidecars,
         "incubating_hints": incubating_hints,
+        "release_page_checks": page_checks,
         "platform_distribution_checks": platform_checks,
         "summary": summary,
         "recommended_ipmc_action": recommended_action,
@@ -1273,12 +1302,14 @@ def tool_release_artifact_evidence(arguments: dict[str, Any]) -> dict[str, Any]:
                     "available": bool(evidence.get("available")),
                     "release_count": release_count,
                     "source_artifact_count": evidence.get("source_artifact_count", 0),
+                    "release_page_checks_available": bool(page_checks.get("included")),
                     "platform_distribution_checks_available": bool(platform_checks.get("included")),
                 }
             ],
             "reasoning": [
                 summary,
                 "Release artifact evidence comes from ReleaseMCP dist/archive inspection.",
+                "Release download page evidence comes from ReleaseMCP when release_page_url is provided.",
                 "Use release_visibility when apache-health/report-derived release signals are needed.",
             ],
             "confidence": "medium" if evidence.get("available") else "low",
@@ -1829,7 +1860,7 @@ TOOLS: dict[str, dict[str, Any]] = {
     "release_artifact_evidence": schemas.tool_definition(
         description=(
             "Return ReleaseMCP artifact, sidecar, cadence, Incubator naming evidence, "
-            "and optional GitHub/Docker Hub/PyPI distribution hints for one podling."
+            "and optional release-page and GitHub/Docker Hub/PyPI/Maven distribution hints for one podling."
         ),
         handler=tool_release_artifact_evidence,
         properties=schemas.release_artifact_evidence_properties(),

@@ -585,6 +585,7 @@ class DataTests(unittest.TestCase):
                 github_project="alpha-project",
                 docker_images=["apache/alpha"],
                 pypi_packages=["apache-alpha"],
+                maven_group_ids=["org.apache.alpha"],
             )
 
         module.release_overview.assert_called_once_with(
@@ -596,9 +597,32 @@ class DataTests(unittest.TestCase):
             github_project="alpha-project",
             docker_images=["apache/alpha"],
             pypi_packages=["apache-alpha"],
+            maven_group_ids=["org.apache.alpha"],
         )
         self.assertTrue(evidence["available"])
         self.assertEqual(evidence["platform_distribution_checks"], {"hints": {"github": []}})
+
+    def test_load_podling_release_artifacts_passes_release_page_url(self) -> None:
+        module = mock.Mock()
+        module.release_overview.return_value = {
+            "podling": "Alpha",
+            "releases": [],
+            "release_page_checks": {"available": True, "hints": []},
+        }
+
+        with mock.patch.object(data, "incubator_releases", module):
+            evidence = data.load_podling_release_artifacts(
+                "Alpha", release_page_url="https://alpha.apache.org/downloads"
+            )
+
+        module.release_overview.assert_called_once_with(
+            "Alpha",
+            dist_base=data.DEFAULT_RELEASE_DIST_BASE,
+            archive_base=data.DEFAULT_RELEASE_ARCHIVE_BASE,
+            max_depth=1,
+            release_page_url="https://alpha.apache.org/downloads",
+        )
+        self.assertEqual(evidence["release_page_checks"], {"available": True, "hints": []})
 
     def test_load_podling_release_artifacts_falls_back_for_old_release_mcp(self) -> None:
         module = mock.Mock()

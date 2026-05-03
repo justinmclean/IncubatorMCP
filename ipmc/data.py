@@ -775,10 +775,12 @@ def load_podling_release_artifacts(
     release_dist_base: str | None = None,
     release_archive_base: str | None = None,
     max_depth: int = 1,
+    release_page_url: str | None = None,
     include_platforms: bool = False,
     github_project: str | None = None,
     docker_images: list[str] | None = None,
     pypi_packages: list[str] | None = None,
+    maven_group_ids: list[str] | None = None,
 ) -> dict[str, Any]:
     dist_base = _resolved_release_dist_base(release_dist_base)
     archive_base = _resolved_release_archive_base(release_archive_base)
@@ -809,31 +811,84 @@ def load_podling_release_artifacts(
             "archive_base": archive_base,
             "max_depth": max_depth,
         }
-        platform_hints_requested = bool(include_platforms or github_project or docker_images or pypi_packages)
+        release_page_requested = bool(release_page_url)
+        platform_hints_requested = bool(
+            include_platforms or github_project or docker_images or pypi_packages or maven_group_ids
+        )
+        if release_page_requested:
+            release_kwargs["release_page_url"] = release_page_url
         if platform_hints_requested:
             release_kwargs |= {
-                "include_platforms": include_platforms,
+                "include_platforms": True,
                 "github_project": github_project,
                 "docker_images": docker_images,
                 "pypi_packages": pypi_packages,
+                "maven_group_ids": maven_group_ids,
             }
-        try:
-            evidence = incubator_releases.release_overview(podling, **release_kwargs)
-        except TypeError as exc:
-            if not platform_hints_requested or "unexpected keyword argument" not in str(exc):
+        unsupported_release_page = False
+        unsupported_platforms = False
+        unsupported_maven = False
+        while True:
+            try:
+                evidence = incubator_releases.release_overview(podling, **release_kwargs)
+                break
+            except TypeError as exc:
+                message = str(exc)
+                if "unexpected keyword argument" not in message:
+                    raise
+                if (
+                    "'maven_group_ids'" in message or '"maven_group_ids"' in message
+                ) and "maven_group_ids" in release_kwargs:
+                    release_kwargs.pop("maven_group_ids")
+                    unsupported_maven = True
+                    continue
+                if (
+                    "'release_page_url'" in message or '"release_page_url"' in message
+                ) and "release_page_url" in release_kwargs:
+                    release_kwargs.pop("release_page_url")
+                    unsupported_release_page = True
+                    continue
+                if (
+                    "'include_platforms'" in message or '"include_platforms"' in message
+                ) and "include_platforms" in release_kwargs:
+                    platform_keys = (
+                        "include_platforms",
+                        "github_project",
+                        "docker_images",
+                        "pypi_packages",
+                        "maven_group_ids",
+                    )
+                    for key in platform_keys:
+                        release_kwargs.pop(key, None)
+                    unsupported_platforms = True
+                    continue
                 raise
-            evidence = incubator_releases.release_overview(
-                podling,
-                dist_base=dist_base,
-                archive_base=archive_base,
-                max_depth=max_depth,
-            )
+
+        if unsupported_platforms:
             evidence["platform_distribution_checks"] = {
                 "included": True,
                 "available": False,
                 "reason": (
                     "Installed apache-incubator-releases-mcp does not support platform distribution hints. "
-                    "Update ReleaseMCP to use include_platforms, github_project, docker_images, or pypi_packages."
+                    "Update ReleaseMCP to use include_platforms, github_project, docker_images, "
+                    "pypi_packages, or maven_group_ids."
+                ),
+            }
+        elif unsupported_maven:
+            checks = evidence.setdefault("platform_distribution_checks", {})
+            hints = checks.setdefault("hints", {})
+            if isinstance(hints, dict):
+                hints["maven"] = [
+                    "Installed apache-incubator-releases-mcp does not support Maven distribution hints. "
+                    "Update ReleaseMCP to use maven_group_ids."
+                ]
+        if unsupported_release_page:
+            evidence["release_page_checks"] = {
+                "location": release_page_url,
+                "available": False,
+                "reason": (
+                    "Installed apache-incubator-releases-mcp does not support release download page checks. "
+                    "Update ReleaseMCP to use release_page_url."
                 ),
             }
     except Exception as exc:

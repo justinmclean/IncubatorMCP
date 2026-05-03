@@ -40,7 +40,11 @@ RELEASE_MAX_DEPTH_PROPERTY = {
 }
 INCLUDE_PLATFORMS_PROPERTY = {
     "type": "boolean",
-    "description": "Fetch optional ReleaseMCP GitHub, Docker Hub, and PyPI distribution hints",
+    "description": "Fetch optional ReleaseMCP GitHub, Docker Hub, PyPI, and Maven distribution hints",
+}
+RELEASE_PAGE_URL_PROPERTY = {
+    "type": "string",
+    "description": "Optional Apache project release download page URL or local HTML file to inspect",
 }
 GITHUB_PROJECT_PROPERTY = {
     "type": "string",
@@ -55,6 +59,11 @@ PYPI_PACKAGES_PROPERTY = {
     "type": "array",
     "items": {"type": "string"},
     "description": "Optional PyPI package names; defaults to apache-<podling>",
+}
+MAVEN_GROUP_IDS_PROPERTY = {
+    "type": "array",
+    "items": {"type": "string"},
+    "description": "Optional Maven groupIds; defaults to org.apache.<podling>",
 }
 AS_OF_DATE_PROPERTY = {
     "type": "string",
@@ -293,10 +302,12 @@ def release_artifact_evidence_properties() -> dict[str, Any]:
         "release_dist_base": RELEASE_DIST_BASE_PROPERTY,
         "release_archive_base": RELEASE_ARCHIVE_BASE_PROPERTY,
         "release_max_depth": RELEASE_MAX_DEPTH_PROPERTY,
+        "release_page_url": RELEASE_PAGE_URL_PROPERTY,
         "include_platforms": INCLUDE_PLATFORMS_PROPERTY,
         "github_project": GITHUB_PROJECT_PROPERTY,
         "docker_images": DOCKER_IMAGES_PROPERTY,
         "pypi_packages": PYPI_PACKAGES_PROPERTY,
+        "maven_group_ids": MAVEN_GROUP_IDS_PROPERTY,
         "podling": PODLING_PROPERTY,
     }
 

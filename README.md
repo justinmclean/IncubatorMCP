@@ -9,7 +9,7 @@ It composes:
 - cached Incubator report entries from `apache-incubator-reports-mcp`
 - cached Incubator general-list messages from `apache-incubator-mail-mcp`
 - live Incubator release vote/result thread evidence from `apache-incubator-mail-mcp`
-- release artifact, signature, checksum, cadence, and optional platform-distribution evidence from `apache-incubator-releases-mcp`
+- release artifact, signature, checksum, cadence, release download page, and optional platform-distribution evidence from `apache-incubator-releases-mcp`
 
 It exposes opinionated Incubator-level tools to help the IPMC:
 
@@ -309,18 +309,21 @@ Arguments:
 
 ### `release_artifact_evidence`
 
-Return ReleaseMCP artifact, signature, checksum, cadence, Incubator naming evidence, and optional GitHub, Docker Hub, and PyPI distribution hints for one podling.
+Return ReleaseMCP artifact, signature, checksum, cadence, Incubator naming evidence, optional release download page checks, and optional GitHub, Docker Hub, PyPI, and Maven distribution hints for one podling.
 
 Arguments:
 
 - `podling`: required podling name
 - `release_max_depth`: optional traversal depth under the podling directory, defaults to `1`; use `0` for a shallower scan
-- `include_platforms`: optional boolean; when true, asks ReleaseMCP to include GitHub, Docker Hub, and PyPI distribution hints
+- `release_page_url`: optional Apache project release download page URL or local HTML file to inspect
+- `include_platforms`: optional boolean; when true, asks ReleaseMCP to include GitHub, Docker Hub, PyPI, and Maven distribution hints
 - `github_project`: optional apache/<project> GitHub repository name; defaults to the podling slug in ReleaseMCP
 - `docker_images`: optional Docker Hub image names in namespace/repository form
 - `pypi_packages`: optional PyPI package names; defaults to apache-<podling> in ReleaseMCP
+- `maven_group_ids`: optional Maven groupIds; defaults to org.apache.<podling> in ReleaseMCP
 
 When platform checks are not requested, the `platform_distribution_checks` response field is an explicit not-requested status rather than `null`.
+When release page checks are not requested, the `release_page_checks` response field is also an explicit not-requested status.
 
 ### `refresh_report_cache`
 
