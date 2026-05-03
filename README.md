@@ -325,8 +325,7 @@ Arguments:
 
 When platform checks are not requested, the `platform_distribution_checks` response field is an explicit not-requested status rather than `null`.
 When release page checks are not requested, the `release_page_checks` response field is also an explicit not-requested status.
-Pass `release_page_url: "auto"` to request release download page checks without supplying the page URL.
-Auto-discovery uses a bounded list of observed Apache project-site download/release paths and does not crawl homepage links.
+Pass `release_page_url: "auto"` to request ReleaseMCP release download page discovery and checks without supplying the page URL.
 
 ### `refresh_report_cache`
 

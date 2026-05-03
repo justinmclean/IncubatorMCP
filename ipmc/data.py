@@ -38,18 +38,6 @@ DEFAULT_MAIL_QUERY_LIMIT = 20
 DEFAULT_RELEASE_DIST_BASE = "https://dist.apache.org/repos/dist/release/incubator"
 DEFAULT_RELEASE_ARCHIVE_BASE = "https://archive.apache.org/dist/incubator"
 RELEASE_PAGE_LINK_LIMIT = 50
-RELEASE_PAGE_DISCOVERY_PATHS = (
-    "downloads.html",
-    "download.html",
-    "downloads/",
-    "download/",
-    "releases.html",
-    "releases/",
-    "docs/download/",
-    "docs/downloads/",
-    "en/download/",
-    "en/downloads/",
-)
 PODLINGS_SOURCE_ENV = "IPMC_PODLINGS_SOURCE"
 HEALTH_SOURCE_ENV = "IPMC_HEALTH_SOURCE"
 REPORT_SOURCE_ENV = "IPMC_REPORT_SOURCE"
@@ -389,10 +377,6 @@ def _not_requested_release_page_checks(podling: str, release_page_url: str, file
         "hints": [],
         "reason": "Release download page checks were not requested.",
     }
-
-
-def _no_homepage_release_links(homepage_text: str, homepage_url: str) -> list[str]:
-    return []
 
 
 def _limit_release_page_check_links(evidence: dict[str, Any]) -> None:
@@ -869,19 +853,9 @@ def load_podling_release_artifacts(
         unsupported_platforms = False
         unsupported_maven = False
         original_release_page_checks = getattr(incubator_releases, "release_page_checks", None)
-        original_release_page_paths = getattr(incubator_releases, "RELEASE_PAGE_PATHS", None)
-        original_homepage_release_links = (
-            getattr(incubator_releases, "_homepage_release_links", None)
-            if "_homepage_release_links" in dir(incubator_releases)
-            else None
-        )
         while True:
             try:
                 with _RELEASE_PAGE_CHECK_PATCH_LOCK:
-                    if isinstance(original_release_page_paths, tuple):
-                        setattr(incubator_releases, "RELEASE_PAGE_PATHS", RELEASE_PAGE_DISCOVERY_PATHS)
-                    if callable(original_homepage_release_links):
-                        setattr(incubator_releases, "_homepage_release_links", _no_homepage_release_links)
                     if not release_page_requested and callable(original_release_page_checks):
                         setattr(incubator_releases, "release_page_checks", _not_requested_release_page_checks)
                     try:
@@ -889,10 +863,6 @@ def load_podling_release_artifacts(
                     finally:
                         if not release_page_requested and callable(original_release_page_checks):
                             setattr(incubator_releases, "release_page_checks", original_release_page_checks)
-                        if callable(original_homepage_release_links):
-                            setattr(incubator_releases, "_homepage_release_links", original_homepage_release_links)
-                        if isinstance(original_release_page_paths, tuple):
-                            setattr(incubator_releases, "RELEASE_PAGE_PATHS", original_release_page_paths)
                 break
             except TypeError as exc:
                 message = str(exc)

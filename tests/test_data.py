@@ -645,30 +645,6 @@ class DataTests(unittest.TestCase):
         )
         self.assertEqual(evidence["release_page_checks"]["location"], "https://alpha.incubator.apache.org/download/")
 
-    def test_load_podling_release_artifacts_uses_bounded_release_page_discovery(self) -> None:
-        class ReleaseModule:
-            RELEASE_PAGE_PATHS = ("download/",)
-
-            def _homepage_release_links(self, homepage_text: str, homepage_url: str) -> list[str]:
-                return ["https://alpha.apache.org/from-homepage/"]
-
-            def release_overview(self, podling: str, **kwargs: object) -> dict[str, object]:
-                self.seen_paths = self.RELEASE_PAGE_PATHS
-                self.seen_homepage_links = self._homepage_release_links("", "https://alpha.apache.org/")
-                return {"podling": podling, "releases": []}
-
-        module = ReleaseModule()
-
-        with mock.patch.object(data, "incubator_releases", module):
-            data.load_podling_release_artifacts("Alpha", release_page_url="auto")
-
-        self.assertEqual(module.seen_paths, data.RELEASE_PAGE_DISCOVERY_PATHS)
-        self.assertEqual(module.seen_homepage_links, [])
-        self.assertEqual(module.RELEASE_PAGE_PATHS, ("download/",))
-        self.assertEqual(
-            module._homepage_release_links("", "https://alpha.apache.org/"), ["https://alpha.apache.org/from-homepage/"]
-        )
-
     def test_load_podling_release_artifacts_uses_discovered_dist_source_when_default_unset(self) -> None:
         module = mock.Mock()
         module.release_overview.return_value = {
