@@ -320,6 +320,8 @@ Arguments:
 - `docker_images`: optional Docker Hub image names in namespace/repository form
 - `pypi_packages`: optional PyPI package names; defaults to apache-<podling> in ReleaseMCP
 
+When platform checks are not requested, the `platform_distribution_checks` response field is an explicit not-requested status rather than `null`.
+
 ### `refresh_report_cache`
 
 Refresh cached ASF Incubator report data used by the report-narrative and cross-source tools.

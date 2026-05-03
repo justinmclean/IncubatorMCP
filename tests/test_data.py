@@ -600,6 +600,23 @@ class DataTests(unittest.TestCase):
         self.assertTrue(evidence["available"])
         self.assertEqual(evidence["platform_distribution_checks"], {"hints": {"github": []}})
 
+    def test_load_podling_release_artifacts_falls_back_for_old_release_mcp(self) -> None:
+        module = mock.Mock()
+        module.release_overview.side_effect = [
+            TypeError("release_overview() got an unexpected keyword argument 'include_platforms'"),
+            {"podling": "Alpha", "releases": []},
+        ]
+
+        with mock.patch.object(data, "incubator_releases", module):
+            evidence = data.load_podling_release_artifacts("Alpha", include_platforms=True)
+
+        self.assertEqual(module.release_overview.call_count, 2)
+        self.assertTrue(evidence["available"])
+        self.assertFalse(evidence["platform_distribution_checks"]["available"])
+        self.assertIn(
+            "does not support platform distribution hints", evidence["platform_distribution_checks"]["reason"]
+        )
+
     def test_load_podling_release_artifacts_defaults_to_one_level_scan(self) -> None:
         module = mock.Mock()
         module.release_overview.return_value = {

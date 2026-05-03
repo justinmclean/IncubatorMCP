@@ -809,14 +809,33 @@ def load_podling_release_artifacts(
             "archive_base": archive_base,
             "max_depth": max_depth,
         }
-        if include_platforms or github_project or docker_images or pypi_packages:
+        platform_hints_requested = bool(include_platforms or github_project or docker_images or pypi_packages)
+        if platform_hints_requested:
             release_kwargs |= {
                 "include_platforms": include_platforms,
                 "github_project": github_project,
                 "docker_images": docker_images,
                 "pypi_packages": pypi_packages,
             }
-        evidence = incubator_releases.release_overview(podling, **release_kwargs)
+        try:
+            evidence = incubator_releases.release_overview(podling, **release_kwargs)
+        except TypeError as exc:
+            if not platform_hints_requested or "unexpected keyword argument" not in str(exc):
+                raise
+            evidence = incubator_releases.release_overview(
+                podling,
+                dist_base=dist_base,
+                archive_base=archive_base,
+                max_depth=max_depth,
+            )
+            evidence["platform_distribution_checks"] = {
+                "included": True,
+                "available": False,
+                "reason": (
+                    "Installed apache-incubator-releases-mcp does not support platform distribution hints. "
+                    "Update ReleaseMCP to use include_platforms, github_project, docker_images, or pypi_packages."
+                ),
+            }
     except Exception as exc:
         return unavailable | {"reason": f"ReleaseMCP dist/archive scan failed: {exc}"}
 

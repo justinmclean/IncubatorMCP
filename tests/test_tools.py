@@ -1177,6 +1177,14 @@ class ToolTests(unittest.TestCase):
         self.assertTrue(payload["explainability"]["source_data_used"])
         self.assertTrue(payload["explainability"]["reasoning"])
         self.assertEqual(payload["explainability"]["confidence"], "medium")
+        self.assertEqual(
+            payload["platform_distribution_checks"],
+            {
+                "included": False,
+                "available": False,
+                "reason": "Platform distribution checks were not requested; pass include_platforms=true to fetch them.",
+            },
+        )
 
     def test_release_artifact_evidence_includes_optional_platform_hints(self) -> None:
         platform_checks = {
@@ -1217,7 +1225,9 @@ class ToolTests(unittest.TestCase):
             docker_images=["apache/shipping"],
             pypi_packages=["apache-shipping"],
         )
-        self.assertEqual(payload["platform_distribution_checks"], platform_checks)
+        self.assertEqual(
+            payload["platform_distribution_checks"], {"included": True, "available": True, **platform_checks}
+        )
         self.assertTrue(payload["explainability"]["source_data_used"][0]["platform_distribution_checks_available"])
         self.assertIn("distribution hints", payload["summary"])
 

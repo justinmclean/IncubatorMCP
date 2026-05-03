@@ -191,6 +191,23 @@ def optional_string_list(arguments: dict[str, Any], key: str) -> list[str] | Non
     return resolved
 
 
+def _platform_distribution_checks(evidence: dict[str, Any], *, requested: bool) -> dict[str, Any]:
+    platform_checks = evidence.get("platform_distribution_checks")
+    if isinstance(platform_checks, dict):
+        return {"included": True, "available": True, **platform_checks}
+    if requested:
+        return {
+            "included": True,
+            "available": False,
+            "reason": "ReleaseMCP did not return platform distribution checks.",
+        }
+    return {
+        "included": False,
+        "available": False,
+        "reason": "Platform distribution checks were not requested; pass include_platforms=true to fetch them.",
+    }
+
+
 def _resolve_sources(arguments: dict[str, Any]) -> dict[str, Any]:
     return {
         "podlings_source": optional_string(arguments, "podlings_source"),
@@ -1183,6 +1200,7 @@ def tool_release_artifact_evidence(arguments: dict[str, Any]) -> dict[str, Any]:
     github_project = optional_string(arguments, "github_project")
     docker_images = optional_string_list(arguments, "docker_images")
     pypi_packages = optional_string_list(arguments, "pypi_packages")
+    platform_hints_requested = bool(include_platforms or github_project or docker_images or pypi_packages)
 
     evidence = load_podling_release_artifacts(
         podling,
@@ -1196,7 +1214,7 @@ def tool_release_artifact_evidence(arguments: dict[str, Any]) -> dict[str, Any]:
     )
     cadence = evidence.get("cadence") or {}
     releases = evidence.get("releases") or []
-    platform_checks = evidence.get("platform_distribution_checks")
+    platform_checks = _platform_distribution_checks(evidence, requested=platform_hints_requested)
     missing_sidecars = []
     for release in releases:
         for artifact in release.get("source_artifacts") or []:
@@ -1211,13 +1229,13 @@ def tool_release_artifact_evidence(arguments: dict[str, Any]) -> dict[str, Any]:
         f"ReleaseMCP found {release_count} release group(s) and "
         f"{evidence.get('source_artifact_count', 0)} source artifact(s) for {podling}."
     )
-    if platform_checks:
+    if platform_checks.get("included"):
         summary += " Optional GitHub, Docker Hub, and PyPI distribution hints were included."
 
     recommended_action = "Compare ReleaseMCP artifact evidence with recent vote evidence and release visibility."
     if not evidence.get("available"):
         recommended_action = "Check ReleaseMCP availability or release source configuration."
-    elif platform_checks:
+    elif platform_checks.get("included"):
         recommended_action = "Review release artifact evidence and platform distribution hints together."
     elif missing_sidecars or hint_text:
         recommended_action = "Review release artifact sidecars and Incubator naming/disclaimer hints."
@@ -1255,7 +1273,7 @@ def tool_release_artifact_evidence(arguments: dict[str, Any]) -> dict[str, Any]:
                     "available": bool(evidence.get("available")),
                     "release_count": release_count,
                     "source_artifact_count": evidence.get("source_artifact_count", 0),
-                    "platform_distribution_checks_available": bool(platform_checks),
+                    "platform_distribution_checks_available": bool(platform_checks.get("included")),
                 }
             ],
             "reasoning": [
