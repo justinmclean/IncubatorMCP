@@ -488,3 +488,6 @@ Opinionated outputs include an `explainability` object so IPMC members can chall
 - `missing`: source evidence that is absent or would improve the assessment
 
 Per-podling tools attach this to podling-level judgments and supporting signals. The community-health summary attaches it to the overall summary and each derived risk theme.
+
+IncubatorMCP is an independent tool and is not a project of the Apache Software Foundation. Apache and related marks are trademarks of The Apache Software Foundation.
+
