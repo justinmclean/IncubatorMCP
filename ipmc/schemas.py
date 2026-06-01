@@ -74,6 +74,49 @@ AS_OF_DATE_PROPERTY = {
     "type": "string",
     "description": "Optional YYYY-MM-DD date to evaluate data as of a specific day",
 }
+TRADEMARK_CACHE_PROPERTY = {
+    "type": "string",
+    "description": (
+        "Optional local cache directory used by TrademarkMCP for the ASF committees+podlings list "
+        "(defaults to ~/.cache/apache-trademark-mcp)"
+    ),
+}
+TRADEMARK_BRANDING_STAGE_PROPERTY = {
+    "type": "string",
+    "description": "Branding lifecycle stage for the website check; defaults to 'podling' for IPMC oversight",
+    "enum": ["podling", "graduation", "tlp"],
+}
+TRADEMARK_PROPOSED_NAME_PROPERTY = {
+    "type": "string",
+    "description": "Proposed Apache project / podling name to validate (without the 'Apache ' prefix)",
+}
+TRADEMARK_TECHNICAL_DESCRIPTION_PROPERTY = {
+    "type": "string",
+    "description": "Optional short technical description used in the PODLINGNAMESEARCH JIRA template",
+}
+TRADEMARK_INCLUDE_EXTERNAL_SEARCH_PROPERTY = {
+    "type": "boolean",
+    "description": (
+        "Whether to run live GitHub, PyPI, and npm name searches (PODLINGNAMESEARCH evidence). "
+        "Defaults to false to keep the check offline."
+    ),
+}
+TRADEMARK_MIN_SIMILARITY_PROPERTY = {
+    "type": "number",
+    "description": "Minimum similarity (0.0-1.0) for fuzzy ASF project-name results; defaults to 0.5",
+}
+TRADEMARK_URL_PROPERTY = {
+    "type": "string",
+    "description": "HTTPS URL of the page to fetch and check",
+}
+TRADEMARK_PROJECT_NAME_PROPERTY = {
+    "type": "string",
+    "description": "Optional project name to use for the branding-policy checks (inferred from the host if omitted)",
+}
+TRADEMARK_MARK_PROPERTY = {
+    "type": "string",
+    "description": "Optional Apache mark (e.g. 'Kafka', 'Spark') the third-party page is using; inferred when omitted",
+}
 REPORT_MONTH_PROPERTY = {
     "type": "string",
     "description": "Optional reporting month in YYYY-MM format",
@@ -155,6 +198,7 @@ def source_defaults_properties() -> dict[str, Any]:
         "mail_api_base": MAIL_API_BASE_PROPERTY,
         "release_dist_base": RELEASE_DIST_BASE_PROPERTY,
         "release_archive_base": RELEASE_ARCHIVE_BASE_PROPERTY,
+        "trademark_cache": TRADEMARK_CACHE_PROPERTY,
     }
 
 
@@ -458,6 +502,41 @@ def mentoring_attention_properties() -> dict[str, Any]:
                 ],
             },
         },
+    }
+
+
+def trademark_naming_check_properties() -> dict[str, Any]:
+    return {
+        "proposed_name": TRADEMARK_PROPOSED_NAME_PROPERTY,
+        "technical_description": TRADEMARK_TECHNICAL_DESCRIPTION_PROPERTY,
+        "include_external_search": TRADEMARK_INCLUDE_EXTERNAL_SEARCH_PROPERTY,
+        "asf_min_similarity": TRADEMARK_MIN_SIMILARITY_PROPERTY,
+        "trademark_cache": TRADEMARK_CACHE_PROPERTY,
+    }
+
+
+def trademark_branding_check_properties() -> dict[str, Any]:
+    return {
+        "podlings_source": PODLINGS_SOURCE_PROPERTY,
+        "podling": PODLING_PROPERTY,
+        "url": TRADEMARK_URL_PROPERTY,
+        "project_name": TRADEMARK_PROJECT_NAME_PROPERTY,
+        "stage": TRADEMARK_BRANDING_STAGE_PROPERTY,
+        "trademark_cache": TRADEMARK_CACHE_PROPERTY,
+    }
+
+
+def trademark_third_party_check_properties() -> dict[str, Any]:
+    return {
+        "url": TRADEMARK_URL_PROPERTY,
+        "mark": TRADEMARK_MARK_PROPERTY,
+        "trademark_cache": TRADEMARK_CACHE_PROPERTY,
+    }
+
+
+def trademark_refresh_cache_properties() -> dict[str, Any]:
+    return {
+        "trademark_cache": TRADEMARK_CACHE_PROPERTY,
     }
 
 

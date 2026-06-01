@@ -42,6 +42,10 @@ Create the persistent volume before the first deploy:
 fly volumes create ipmc_data --size 1 --region lax --app incubatormcp
 ```
 
+The Fly Machine is configured with 256 MB RAM and 512 MB swap. The swap space
+is managed by Fly from `swap_size_mb`; the 1 GB `/data` volume is only for cached
+source data.
+
 Deploy from the repository root:
 
 ```bash

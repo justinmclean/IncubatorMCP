@@ -21,6 +21,8 @@ from .analysis import (
     stalled_podling_signal,
 )
 from .data import (
+    DEFAULT_TRADEMARK_BRANDING_STAGE,
+    DEFAULT_TRADEMARK_NAME_SIMILARITY,
     _podling_key,
     build_records,
     configure_defaults,
@@ -28,10 +30,14 @@ from .data import (
     load_podling_release_artifacts,
     load_podling_release_vote_history,
     load_podlings,
+    load_project_website_branding_check,
+    load_proposed_name_check,
     load_reporting_schedules,
+    load_third_party_use_check,
     months_since,
     refresh_incubator_general_mail_cache,
     refresh_incubator_report_cache,
+    refresh_trademark_project_cache,
     source_defaults,
 )
 
@@ -142,6 +148,15 @@ def optional_integer(arguments: dict[str, Any], key: str) -> int | None:
     return value
 
 
+def optional_number(arguments: dict[str, Any], key: str, default: float | None = None) -> float | None:
+    value = arguments.get(key)
+    if value is None:
+        return default
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"'{key}' must be a number")
+    return float(value)
+
+
 def optional_depth(arguments: dict[str, Any], key: str, default: int = 1) -> int:
     value = optional_integer(arguments, key)
     if value is None:
@@ -247,6 +262,7 @@ def _resolve_source_defaults(arguments: dict[str, Any]) -> dict[str, Any]:
         "mail_api_base": optional_string(arguments, "mail_api_base"),
         "release_dist_base": optional_string(arguments, "release_dist_base"),
         "release_archive_base": optional_string(arguments, "release_archive_base"),
+        "trademark_cache": optional_string(arguments, "trademark_cache"),
     }
 
 
@@ -1796,6 +1812,228 @@ def tool_community_health_summary(arguments: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _podling_website_url(podling_record: dict[str, Any]) -> str | None:
+    resource = podling_record.get("resource")
+    if isinstance(resource, str) and resource.strip():
+        return resource.strip()
+    # PodlingsMCP sometimes nests the URL under a structured resource object.
+    if isinstance(resource, dict):
+        for key in ("href", "url", "value"):
+            value = resource.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    return None
+
+
+def _find_podling(podlings: list[dict[str, Any]], name: str) -> dict[str, Any] | None:
+    requested_key = _podling_key(name)
+    for podling in podlings:
+        if _podling_key(str(podling.get("name") or "")) == requested_key:
+            return podling
+    return None
+
+
+def _trademark_summary(verdict: str, target: str) -> str:
+    return {
+        "PASS": f"Trademark MCP reports PASS for {target}.",
+        "WARN": f"Trademark MCP reports WARN for {target}; review advisory findings.",
+        "FAIL": f"Trademark MCP reports FAIL for {target}; resolve blocking findings.",
+        "SKIP": f"Trademark MCP could not evaluate {target} (page fetch failed or source unavailable).",
+    }.get(verdict, f"Trademark MCP returned verdict '{verdict}' for {target}.")
+
+
+def tool_trademark_naming_check(arguments: dict[str, Any]) -> dict[str, Any]:
+    proposed_name = require_string(arguments, "proposed_name")
+    technical_description = optional_string(arguments, "technical_description")
+    include_external_search = optional_boolean(arguments, "include_external_search", False) or False
+    asf_min_similarity = optional_number(
+        arguments, "asf_min_similarity", DEFAULT_TRADEMARK_NAME_SIMILARITY
+    ) or DEFAULT_TRADEMARK_NAME_SIMILARITY
+    trademark_cache = optional_string(arguments, "trademark_cache")
+
+    result = load_proposed_name_check(
+        proposed_name,
+        technical_description=technical_description,
+        include_external_search=include_external_search,
+        asf_min_similarity=asf_min_similarity,
+        trademark_cache=trademark_cache,
+    )
+    verdict = str(result.get("verdict") or ("SKIP" if not result.get("available") else "PASS"))
+    summary = (
+        _trademark_summary(verdict, f"proposed name '{proposed_name}'")
+        if result.get("available")
+        else str(result.get("reason") or "TrademarkMCP unavailable.")
+    )
+    recommended_action = {
+        "FAIL": (
+            "Choose a different name. Definitive policy violations must be resolved before filing a "
+            "PODLINGNAMESEARCH ticket."
+        ),
+        "WARN": "Review advisory warnings before filing PODLINGNAMESEARCH; consult trademarks@apache.org if uncertain.",
+        "PASS": (
+            "Automated checks passed. PODLINGNAMESEARCH (USPTO search, JIRA, VP Brand Management approval) "
+            "is still required."
+        ),
+        "SKIP": "Install/enable apache-trademark-mcp to run automated naming checks.",
+    }.get(verdict, "Review the trademark MCP output before proceeding.")
+    return {
+        "generated_for": "trademark_naming_check",
+        "trademark_source": {
+            "source": "apache-trademark",
+            "available": bool(result.get("available")),
+            "reason": result.get("reason"),
+            "cache_dir": result.get("cache_dir"),
+            "cache_age_hours": result.get("cache_age_hours"),
+        },
+        "proposed_name": proposed_name,
+        "apache_form": result.get("apache_form") or f"Apache {proposed_name}",
+        "technical_description": technical_description,
+        "verdict": verdict,
+        "blocking_issues": result.get("blocking_issues") or [],
+        "warnings": result.get("warnings") or [],
+        "asf_name_conflicts": result.get("asf_name_conflicts") or [],
+        "nearby_asf_names": result.get("nearby_asf_names") or [],
+        "fuzzy_asf_results": result.get("fuzzy_asf_results") or [],
+        "external_search": result.get("external_search"),
+        "policy_citations": result.get("policy_citations") or [],
+        "summary": summary,
+        "recommended_ipmc_action": recommended_action,
+    }
+
+
+def tool_trademark_branding_check(arguments: dict[str, Any]) -> dict[str, Any]:
+    podlings_source = optional_string(arguments, "podlings_source")
+    podling = optional_string(arguments, "podling")
+    url = optional_string(arguments, "url")
+    project_name = optional_string(arguments, "project_name")
+    stage = optional_choice(arguments, "stage", {"podling", "graduation", "tlp"})
+    trademark_cache = optional_string(arguments, "trademark_cache")
+
+    if not podling and not url:
+        raise ValueError("Either 'podling' or 'url' must be provided")
+
+    podlings_meta: dict[str, Any] | None = None
+    podling_record: dict[str, Any] | None = None
+    if podling:
+        podlings, podlings_meta = load_podlings(podlings_source)
+        podling_record = _find_podling(podlings, podling)
+        if podling_record is None:
+            raise ValueError(f"Podling '{podling}' not found")
+        if not url:
+            url = _podling_website_url(podling_record)
+            if not url:
+                raise ValueError(
+                    f"Podling '{podling}' has no website URL in podlings.xml; pass an explicit 'url'."
+                )
+        if not project_name:
+            project_name = str(podling_record.get("name") or "")
+        if stage is None:
+            stage = "podling"
+
+    if stage is None:
+        stage = DEFAULT_TRADEMARK_BRANDING_STAGE
+    assert url is not None  # narrowed above
+
+    result = load_project_website_branding_check(
+        url,
+        project_name=project_name,
+        stage=stage,
+        trademark_cache=trademark_cache,
+    )
+    verdict = str(result.get("verdict") or ("SKIP" if not result.get("available") else "PASS"))
+    target_label = podling_record["name"] if podling_record else url
+    summary = (
+        _trademark_summary(verdict, f"project website for {target_label}")
+        if result.get("available")
+        else str(result.get("reason") or "TrademarkMCP unavailable.")
+    )
+    return {
+        "generated_for": "trademark_branding_check",
+        "trademark_source": {
+            "source": "apache-trademark",
+            "available": bool(result.get("available")),
+            "reason": result.get("reason"),
+            "cache_dir": result.get("cache_dir"),
+        },
+        "podlings_source": podlings_meta,
+        "podling": podling_record["name"] if podling_record else None,
+        "target_url": result.get("target_url") or url,
+        "final_url": result.get("final_url"),
+        "project_name": result.get("project_name") or project_name,
+        "stage": result.get("stage") or stage,
+        "verdict": verdict,
+        "counts": result.get("counts") or {},
+        "severity_counts": result.get("severity_counts") or {},
+        "findings": result.get("findings") or [],
+        "checklist": result.get("checklist"),
+        "policy_references": result.get("policy_references") or {},
+        "fetch_error": result.get("fetch_error"),
+        "summary": summary,
+        "recommended_ipmc_action": (
+            "Review FAIL findings against the branding checklist; podlings must reach PASS before graduation."
+            if verdict in ("FAIL", "WARN")
+            else "No branding-policy issues detected; re-check after major site changes."
+        ),
+    }
+
+
+def tool_trademark_third_party_check(arguments: dict[str, Any]) -> dict[str, Any]:
+    url = require_string(arguments, "url")
+    mark = optional_string(arguments, "mark")
+    trademark_cache = optional_string(arguments, "trademark_cache")
+
+    result = load_third_party_use_check(url, mark=mark, trademark_cache=trademark_cache)
+    verdict = str(result.get("verdict") or ("SKIP" if not result.get("available") else "PASS"))
+    summary = (
+        _trademark_summary(verdict, f"third-party use of {mark or 'Apache marks'} at {url}")
+        if result.get("available")
+        else str(result.get("reason") or "TrademarkMCP unavailable.")
+    )
+    return {
+        "generated_for": "trademark_third_party_check",
+        "trademark_source": {
+            "source": "apache-trademark",
+            "available": bool(result.get("available")),
+            "reason": result.get("reason"),
+            "cache_dir": result.get("cache_dir"),
+        },
+        "target_url": result.get("target_url") or url,
+        "final_url": result.get("final_url"),
+        "mark": result.get("mark") or mark or "",
+        "verdict": verdict,
+        "counts": result.get("counts") or {},
+        "severity_counts": result.get("severity_counts") or {},
+        "findings": result.get("findings") or [],
+        "policy_references": result.get("policy_references") or {},
+        "fetch_error": result.get("fetch_error"),
+        "summary": summary,
+        "recommended_ipmc_action": (
+            "Forward FAIL findings to trademarks@apache.org with the page URL and a citation of the rule."
+            if verdict == "FAIL"
+            else (
+                "Note advisory issues; only escalate if the page is clearly misleading about ASF affiliation."
+                if verdict == "WARN"
+                else "No ASF trademark policy issues detected on this page."
+            )
+        ),
+    }
+
+
+def tool_refresh_trademark_cache(arguments: dict[str, Any]) -> dict[str, Any]:
+    trademark_cache = optional_string(arguments, "trademark_cache")
+    result = refresh_trademark_project_cache(trademark_cache=trademark_cache)
+    return {
+        "generated_for": "refresh_trademark_cache",
+        "trademark_source": {
+            "source": result.get("source") or "apache-trademark",
+            "cache_dir": result.get("cache_dir"),
+            "available": bool(result.get("available")),
+            "reason": result.get("reason"),
+        },
+        "cache_result": result,
+    }
+
+
 TOOLS: dict[str, dict[str, Any]] = {
     "configure_sources": schemas.tool_definition(
         description=(
@@ -1937,5 +2175,40 @@ TOOLS: dict[str, dict[str, Any]] = {
         ),
         handler=tool_community_health_summary,
         properties=schemas.community_summary_properties(),
+    ),
+    "trademark_naming_check": schemas.tool_definition(
+        description=(
+            "Run TrademarkMCP automated naming checks (reserved marks, Native American check, "
+            "format, ASF project-list conflicts, optional GitHub/PyPI/npm lookups) for a proposed "
+            "Apache project or podling name."
+        ),
+        handler=tool_trademark_naming_check,
+        properties=schemas.trademark_naming_check_properties(),
+        required=["proposed_name"],
+    ),
+    "trademark_branding_check": schemas.tool_definition(
+        description=(
+            "Fetch a podling's project website (resolved from podlings.xml when 'podling' is supplied) "
+            "and run TrademarkMCP's Project Branding Requirements compliance checks."
+        ),
+        handler=tool_trademark_branding_check,
+        properties=schemas.trademark_branding_check_properties(),
+    ),
+    "trademark_third_party_check": schemas.tool_definition(
+        description=(
+            "Fetch a third-party page and run TrademarkMCP's ASF Trademark Policy checks "
+            "(domain misuse, branding form, non-affiliation disclaimer, logo misuse, credit link)."
+        ),
+        handler=tool_trademark_third_party_check,
+        properties=schemas.trademark_third_party_check_properties(),
+        required=["url"],
+    ),
+    "refresh_trademark_cache": schemas.tool_definition(
+        description=(
+            "Force a fresh fetch of the ASF committees+podlings list used by TrademarkMCP "
+            "for ASF project-name conflict and bare-mark checks."
+        ),
+        handler=tool_refresh_trademark_cache,
+        properties=schemas.trademark_refresh_cache_properties(),
     ),
 }

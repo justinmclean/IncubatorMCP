@@ -229,6 +229,7 @@ def _configure_from_args(args: argparse.Namespace) -> None:
         mail_api_base=args.mail_api_base,
         release_dist_base=args.release_dist_base,
         release_archive_base=args.release_archive_base,
+        trademark_cache=args.trademark_cache,
     )
 
 
@@ -355,6 +356,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--release-archive-base",
         help="ReleaseMCP archive.apache.org base URL or local archive directory",
+    )
+    parser.add_argument(
+        "--trademark-cache",
+        help=(
+            "TrademarkMCP local cache directory for the ASF committees+podlings list "
+            "(defaults to ~/.cache/apache-trademark-mcp)"
+        ),
     )
     parser.add_argument("--http", action="store_true", help="Serve JSON-RPC/MCP over HTTP instead of stdio")
     parser.add_argument(

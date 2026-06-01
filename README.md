@@ -10,6 +10,7 @@ It composes:
 - cached Incubator general-list messages from `apache-incubator-mail-mcp`
 - live Incubator release vote/result thread evidence from `apache-incubator-mail-mcp`
 - release artifact, signature, checksum, cadence, release download page, and optional platform-distribution evidence from `apache-incubator-releases-mcp`
+- ASF naming, project-website branding, and third-party trademark use checks from `apache-trademark-mcp`
 
 It exposes opinionated Incubator-level tools to help the IPMC:
 
@@ -451,6 +452,48 @@ Arguments:
 - `group_by`: optional `none`, `risk_band`, `mentor_load`, or `age_band`
 - `include_examples`: optional boolean
 
+### `trademark_naming_check`
+
+Run TrademarkMCP automated naming checks for a proposed Apache project or podling name (reserved marks, Native American check, name format, ASF project-list conflicts, optional GitHub/PyPI/npm lookups).
+
+Arguments:
+
+- `proposed_name` (required)
+- `technical_description`: optional, used in the PODLINGNAMESEARCH JIRA template
+- `include_external_search`: optional boolean; defaults to false (offline checks only)
+- `asf_min_similarity`: optional number 0.0–1.0; defaults to 0.5
+- `trademark_cache`: optional TrademarkMCP cache directory
+
+### `trademark_branding_check`
+
+Fetch a podling's project website and run TrademarkMCP's Project Branding Requirements checks. Pass `podling` to look up the website URL from `podlings.xml` automatically, or pass `url` explicitly. Defaults to the `podling` branding stage.
+
+Arguments:
+
+- `podling`: optional; when provided the website URL is resolved from `podlings.xml`
+- `url`: optional; required if `podling` is omitted
+- `project_name`: optional; inferred from the page host if omitted
+- `stage`: optional `podling`, `graduation`, or `tlp`; defaults to `podling`
+- `trademark_cache`: optional TrademarkMCP cache directory
+
+### `trademark_third_party_check`
+
+Fetch a third-party page and run TrademarkMCP's ASF Trademark Policy checks (domain misuse, branding form, non-affiliation disclaimer, logo misuse, credit link).
+
+Arguments:
+
+- `url` (required)
+- `mark`: optional Apache mark (e.g. `Kafka`, `Spark`); inferred when omitted
+- `trademark_cache`: optional TrademarkMCP cache directory
+
+### `refresh_trademark_cache`
+
+Force a fresh fetch of the ASF committees+podlings list used by TrademarkMCP.
+
+Arguments:
+
+- `trademark_cache`: optional TrademarkMCP cache directory
+
 ## Defaults
 
 - When omitted, `podlings_source` uses `--podlings-source`, `IPMC_PODLINGS_SOURCE`, or the ASF `podlings.xml` URL.
@@ -460,6 +503,7 @@ Arguments:
 - When omitted, `mail_api_base` uses `--mail-api-base`, `IPMC_MAIL_API_BASE`, or the public lists.apache.org API.
 - When omitted, `release_dist_base` uses `--release-dist-base` or `IPMC_RELEASE_DIST_BASE`; if neither is set, ReleaseMCP discovers the podling download page instead of forcing the public Incubator dist release URL.
 - When omitted, `release_archive_base` uses `--release-archive-base`, `IPMC_RELEASE_ARCHIVE_BASE`, or the public Incubator archive URL.
+- When omitted, `trademark_cache` uses `--trademark-cache`, `IPMC_TRADEMARK_CACHE`, or TrademarkMCP's default `~/.cache/apache-trademark-mcp`.
 - Oversight views focus on current podlings by default.
 - Single-podling lookups can still return non-current or report-cache-only podlings when matching source data is available.
 - Health analysis prefers the freshest available window in this order: `3m`, `6m`, `12m`, `to-date`.

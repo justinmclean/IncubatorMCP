@@ -29,6 +29,19 @@ try:
 except ImportError:  # pragma: no cover - exercised when optional source package is absent locally
     incubator_releases = None  # type: ignore[assignment]
 
+try:
+    from apache_trademark_mcp import compliance as trademark_compliance  # type: ignore[import-not-found]
+    from apache_trademark_mcp import policy as trademark_policy  # type: ignore[import-not-found]
+    from apache_trademark_mcp import projects as trademark_projects  # type: ignore[import-not-found]
+    from apache_trademark_mcp import search as trademark_search  # type: ignore[import-not-found]
+    from apache_trademark_mcp import web as trademark_web  # type: ignore[import-not-found]
+except ImportError:  # pragma: no cover - exercised when optional source package is absent locally
+    trademark_compliance = None  # type: ignore[assignment]
+    trademark_policy = None  # type: ignore[assignment]
+    trademark_projects = None  # type: ignore[assignment]
+    trademark_search = None  # type: ignore[assignment]
+    trademark_web = None  # type: ignore[assignment]
+
 DEFAULT_HEALTH_SOURCE = "reports"
 DEFAULT_REPORT_SOURCE = ".cache/incubator-reports"
 DEFAULT_MAIL_SOURCE = ".cache/incubator-general-mail"
@@ -38,6 +51,8 @@ DEFAULT_MAIL_QUERY_LIMIT = 20
 DEFAULT_RELEASE_DIST_BASE = "https://dist.apache.org/repos/dist/release/incubator"
 DEFAULT_RELEASE_ARCHIVE_BASE = "https://archive.apache.org/dist/incubator"
 RELEASE_PAGE_LINK_LIMIT = 50
+DEFAULT_TRADEMARK_BRANDING_STAGE = "podling"
+DEFAULT_TRADEMARK_NAME_SIMILARITY = 0.5
 PODLINGS_SOURCE_ENV = "IPMC_PODLINGS_SOURCE"
 HEALTH_SOURCE_ENV = "IPMC_HEALTH_SOURCE"
 REPORT_SOURCE_ENV = "IPMC_REPORT_SOURCE"
@@ -45,6 +60,7 @@ MAIL_SOURCE_ENV = "IPMC_MAIL_SOURCE"
 MAIL_API_BASE_ENV = "IPMC_MAIL_API_BASE"
 RELEASE_DIST_BASE_ENV = "IPMC_RELEASE_DIST_BASE"
 RELEASE_ARCHIVE_BASE_ENV = "IPMC_RELEASE_ARCHIVE_BASE"
+TRADEMARK_CACHE_ENV = "IPMC_TRADEMARK_CACHE"
 
 
 @dataclass
@@ -56,6 +72,7 @@ class SourceDefaults:
     mail_api_base: str | None = None
     release_dist_base: str | None = None
     release_archive_base: str | None = None
+    trademark_cache: str | None = None
 
 
 _CONFIGURED_DEFAULTS = SourceDefaults()
@@ -86,11 +103,14 @@ def configure_defaults(
     mail_api_base: str | None = None,
     release_dist_base: str | None = None,
     release_archive_base: str | None = None,
+    trademark_cache: str | None = None,
+    trademark_cache_dir: str | None = None,
 ) -> None:
     resolved_podlings_source = podlings_source or podlings_repo
     resolved_health_source = health_source or health_repo
     resolved_report_source = report_source or reports_source
     resolved_mail_source = mail_source or mail_cache_dir
+    resolved_trademark_cache = trademark_cache or trademark_cache_dir
     if resolved_podlings_source:
         _CONFIGURED_DEFAULTS.podlings_source = resolved_podlings_source
     if resolved_health_source:
@@ -105,6 +125,16 @@ def configure_defaults(
         _CONFIGURED_DEFAULTS.release_dist_base = release_dist_base
     if release_archive_base:
         _CONFIGURED_DEFAULTS.release_archive_base = release_archive_base
+    if resolved_trademark_cache:
+        _CONFIGURED_DEFAULTS.trademark_cache = resolved_trademark_cache
+        if trademark_projects is not None:
+            try:
+                trademark_projects.cache_dir_from_env(resolved_trademark_cache)
+                from apache_trademark_mcp import tools as _tm_tools  # type: ignore[import-not-found]
+
+                _tm_tools.configure_defaults(cache_dir=resolved_trademark_cache)
+            except Exception:  # pragma: no cover - defensive
+                pass
 
 
 def configured_defaults_snapshot() -> SourceDefaults:
@@ -368,6 +398,10 @@ def _resolved_release_archive_base(release_archive_base: str | None = None) -> s
     )
 
 
+def _resolved_trademark_cache(trademark_cache: str | None = None) -> str | None:
+    return trademark_cache or _CONFIGURED_DEFAULTS.trademark_cache or _env_default(TRADEMARK_CACHE_ENV)
+
+
 def _not_requested_release_page_checks(podling: str, release_page_url: str, files: list[Any]) -> dict[str, Any]:
     return {
         "location": release_page_url,
@@ -413,6 +447,7 @@ def source_defaults() -> dict[str, Any]:
             "mail_api_base": _resolved_mail_api_base(),
             "release_dist_base": _resolved_release_dist_base(),
             "release_archive_base": _resolved_release_archive_base(),
+            "trademark_cache": _resolved_trademark_cache(),
         },
     }
 
@@ -1027,3 +1062,247 @@ def build_records(
         "report_source": report_meta,
         "mail_source": mail_meta,
     }
+
+
+def _trademark_unavailable_meta(reason: str) -> dict[str, Any]:
+    return {
+        "source": "apache-trademark",
+        "available": False,
+        "reason": reason,
+    }
+
+
+def _trademark_cache_path() -> Any:
+    """Return the cache dir Path that the trademark package should use."""
+    if trademark_projects is None:
+        return None
+    explicit = _resolved_trademark_cache()
+    return trademark_projects.cache_dir_from_env(explicit)
+
+
+def load_proposed_name_check(
+    proposed_name: str,
+    *,
+    technical_description: str | None = None,
+    include_external_search: bool = False,
+    asf_min_similarity: float = DEFAULT_TRADEMARK_NAME_SIMILARITY,
+    trademark_cache: str | None = None,
+) -> dict[str, Any]:
+    """Run the trademark MCP's name-related checks for a proposed podling/project name.
+
+    Combines ``validate_name`` (reserved marks, format, Native American check, ASF
+    project-list conflicts) with optional GitHub/PyPI/npm external lookups
+    (``perform_name_search``) and a fuzzy ASF project-list search
+    (``search_asf_projects``). Returns a uniform IPMC-shaped payload so callers
+    do not need to know the upstream tool layout.
+    """
+    if trademark_projects is None or trademark_policy is None:
+        return _trademark_unavailable_meta(
+            "apache-trademark-mcp is not installed. Add it as an IPMC source dependency to enable naming checks."
+        ) | {
+            "proposed_name": proposed_name,
+            "available": False,
+        }
+
+    if trademark_cache:
+        configure_defaults(trademark_cache=trademark_cache)
+
+    cache_dir = _trademark_cache_path()
+
+    asf_projects = trademark_projects.fetch_projects(cache_dir=cache_dir)
+    asf_conflicts, nearby_asf_names = trademark_projects.find_name_conflicts(proposed_name, asf_projects)
+
+    blocking: list[str] = []
+    blocking.extend(trademark_policy.check_reserved(proposed_name))
+    for flag in trademark_policy.check_native_american(proposed_name):
+        blocking.append(
+            f"'{flag}' is a Native American tribal or cultural name. "
+            "ASF policy: names with Native American connections will not be approved."
+        )
+    format_blocking, warnings = trademark_policy.check_format(proposed_name)
+    blocking.extend(format_blocking)
+    for match in asf_conflicts:
+        if match["match_type"] == "exact":
+            blocking.append(
+                f"Exact name conflict with existing ASF project '{match['name']}'. "
+                "The same name cannot be reused for a new podling."
+            )
+        else:
+            blocking.append(
+                f"Near-exact name match with existing ASF project '{match['name']}' "
+                f"(similarity {match['similarity']:.0%})."
+            )
+    verdict = "FAIL" if blocking else ("WARN" if warnings else "PASS")
+
+    similar = trademark_projects.find_similar(
+        proposed_name, asf_projects, threshold=max(0.0, min(1.0, asf_min_similarity))
+    )
+    descriptions = trademark_projects.project_descriptions(asf_projects)
+    fuzzy_results: list[dict[str, Any]] = []
+    for match in similar:
+        norm_key = trademark_policy.normalize(match["name"]).replace(" ", "-")
+        fuzzy_results.append(
+            {
+                "name": match["name"],
+                "similarity": match["similarity"],
+                "url": match["url"],
+                "description": descriptions.get(norm_key, ""),
+            }
+        )
+
+    external_search: dict[str, Any] | None = None
+    if include_external_search and trademark_search is not None:
+        try:
+            results = trademark_search.run_external_searches(proposed_name)
+            github, pypi, npm = results["github"], results["pypi"], results["npm"]
+            external_search = {
+                "available": True,
+                "github": github,
+                "pypi": pypi,
+                "npm": npm,
+                "suitability_assessment": trademark_search.assess_findings(
+                    proposed_name, github, pypi, npm, technical_description or ""
+                ),
+                "trademark_search_urls": trademark_search.trademark_search_urls(proposed_name),
+                "jira_ticket_template": trademark_search.jira_template(
+                    proposed_name, technical_description or "", github, pypi, npm
+                ),
+            }
+        except Exception as exc:  # pragma: no cover - network failure
+            external_search = {"available": False, "reason": f"External name search failed: {exc}"}
+
+    return {
+        "source": "apache-trademark",
+        "available": True,
+        "proposed_name": proposed_name,
+        "apache_form": f"Apache {proposed_name}",
+        "technical_description": technical_description or None,
+        "verdict": verdict,
+        "blocking_issues": blocking,
+        "warnings": warnings,
+        "asf_name_conflicts": asf_conflicts,
+        "nearby_asf_names": nearby_asf_names,
+        "fuzzy_asf_results": fuzzy_results,
+        "external_search": external_search,
+        "cache_dir": str(cache_dir) if cache_dir else None,
+        "cache_age_hours": trademark_projects.cache_age_hours(cache_dir=cache_dir),
+        "policy_citations": trademark_policy.policy_citations(),
+    }
+
+
+def load_project_website_branding_check(
+    url: str,
+    *,
+    project_name: str | None = None,
+    stage: str = DEFAULT_TRADEMARK_BRANDING_STAGE,
+    trademark_cache: str | None = None,
+) -> dict[str, Any]:
+    """Fetch a project website and run the trademark MCP's branding-compliance rules."""
+    if trademark_compliance is None or trademark_web is None or trademark_projects is None or trademark_policy is None:
+        return _trademark_unavailable_meta(
+            "apache-trademark-mcp is not installed. Add it as an IPMC source dependency "
+            "to enable project-website branding checks."
+        ) | {"target_url": url, "available": False}
+
+    if stage not in trademark_policy.VALID_BRANDING_STAGES:
+        raise ValueError(
+            f"'stage' must be one of: {', '.join(sorted(trademark_policy.VALID_BRANDING_STAGES))}"
+        )
+
+    if trademark_cache:
+        configure_defaults(trademark_cache=trademark_cache)
+    cache_dir = _trademark_cache_path()
+
+    try:
+        page = trademark_web.fetch_page(url)
+    except Exception as exc:
+        return _trademark_unavailable_meta(f"Failed to fetch project website: {exc}") | {
+            "target_url": url,
+            "available": False,
+        }
+
+    asf_projects = trademark_projects.fetch_projects(cache_dir=cache_dir)
+    known_marks = trademark_compliance.project_names_for_bare_scan(asf_projects)
+    report = trademark_compliance.check_project_website(
+        page,
+        project_name=project_name or None,
+        stage=stage,
+        known_marks=known_marks,
+    )
+
+    payload = report.to_dict()
+    payload.update(
+        {
+            "source": "apache-trademark",
+            "available": True,
+            "project_name": project_name or trademark_compliance._infer_project_name(page),
+            "stage": stage,
+            "checklist": trademark_policy.branding_checklist(stage),
+            "policy_references": dict(trademark_compliance.POLICY_URLS),
+            "cache_dir": str(cache_dir) if cache_dir else None,
+        }
+    )
+    return payload
+
+
+def load_third_party_use_check(
+    url: str,
+    *,
+    mark: str | None = None,
+    trademark_cache: str | None = None,
+) -> dict[str, Any]:
+    """Fetch a third-party page and run the trademark MCP's policy rules."""
+    if trademark_compliance is None or trademark_web is None or trademark_projects is None:
+        return _trademark_unavailable_meta(
+            "apache-trademark-mcp is not installed. Add it as an IPMC source dependency "
+            "to enable third-party trademark use checks."
+        ) | {"target_url": url, "available": False}
+
+    if trademark_cache:
+        configure_defaults(trademark_cache=trademark_cache)
+    cache_dir = _trademark_cache_path()
+
+    try:
+        page = trademark_web.fetch_page(url)
+    except Exception as exc:
+        return _trademark_unavailable_meta(f"Failed to fetch third-party page: {exc}") | {
+            "target_url": url,
+            "available": False,
+        }
+
+    asf_projects = trademark_projects.fetch_projects(cache_dir=cache_dir)
+    known_marks = trademark_compliance.project_names_for_bare_scan(asf_projects)
+    report = trademark_compliance.check_third_party_use(
+        page, mark=mark or None, known_marks=known_marks
+    )
+
+    payload = report.to_dict()
+    payload.update(
+        {
+            "source": "apache-trademark",
+            "available": True,
+            "mark": mark or "",
+            "policy_references": dict(trademark_compliance.POLICY_URLS),
+            "cache_dir": str(cache_dir) if cache_dir else None,
+        }
+    )
+    return payload
+
+
+def refresh_trademark_project_cache(trademark_cache: str | None = None) -> dict[str, Any]:
+    """Force a fresh fetch of the ASF committees+podlings list used by the trademark MCP."""
+    if trademark_projects is None:
+        return _trademark_unavailable_meta(
+            "apache-trademark-mcp is not installed."
+        ) | {"cached": False}
+
+    if trademark_cache:
+        configure_defaults(trademark_cache=trademark_cache)
+    cache_dir = _trademark_cache_path()
+
+    result = dict(trademark_projects.refresh_cache(cache_dir=cache_dir))
+    result.setdefault("source", "apache-trademark")
+    result["cache_dir"] = str(cache_dir) if cache_dir else None
+    result["available"] = True
+    result["cached"] = True
+    return result

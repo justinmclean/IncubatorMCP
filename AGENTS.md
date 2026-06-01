@@ -4,7 +4,7 @@
 
 This repository contains a small dependency-light MCP server for Apache Incubator PMC (IPMC) oversight views.
 
-It composes lifecycle data from the `apache-podlings-mcp` package, health-report data from the `apache-health-mcp` package, cached report data from `apache-incubator-reports-mcp`, cached general-list mail data from `apache-incubator-mail-mcp`, and release artifact data from `apache-incubator-releases-mcp` into opinionated Incubator-level tools for podling risk, readiness, mentoring needs, release visibility, and community-health summaries.
+It composes lifecycle data from the `apache-podlings-mcp` package, health-report data from the `apache-health-mcp` package, cached report data from `apache-incubator-reports-mcp`, cached general-list mail data from `apache-incubator-mail-mcp`, release artifact data from `apache-incubator-releases-mcp`, and ASF naming / branding / third-party-use checks from `apache-trademark-mcp` into opinionated Incubator-level tools for podling risk, readiness, mentoring needs, release visibility, trademark compliance, and community-health summaries.
 
 This is an IPMC / Incubator oversight MCP, not a board tool.
 
@@ -34,6 +34,7 @@ This is an IPMC / Incubator oversight MCP, not a board tool.
 - `podlings_source` defaults to the ASF Incubator `podlings.xml` URL through `PodlingsMCP`.
 - `health_source` defaults to the `--health-source` startup argument, or `reports` if unset.
 - `mail_source` defaults to the `--mail-source` startup argument, or `.cache/incubator-general-mail` if unset.
+- `trademark_cache` defaults to the `--trademark-cache` startup argument, the `IPMC_TRADEMARK_CACHE` env var, or TrademarkMCP's default `~/.cache/apache-trademark-mcp`.
 - Source MCP modules are imported from installed packages; local sibling checkouts are not required.
 - Oversight views focus on current podlings unless a lower-level helper explicitly includes non-current records.
 - Health analysis prefers the freshest available window in this order: `3m`, `6m`, `12m`, `to-date`.
@@ -75,3 +76,4 @@ Coverage is scoped to the local `ipmc` package so imported source MCP libraries 
 - Direct tool behavior belongs in `tests/test_tools.py`.
 - Protocol helper behavior belongs in `tests/test_protocol.py`.
 - End-to-end MCP stdio coverage belongs in `tests/test_mcp_integration.py`.
+- TrademarkMCP integration tests (data loaders + tool dispatch) belong in `tests/test_trademark.py`.

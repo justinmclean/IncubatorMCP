@@ -43,6 +43,10 @@ class ProtocolTests(unittest.TestCase):
                 "podling_brief",
                 "mentoring_attention_needed",
                 "community_health_summary",
+                "trademark_naming_check",
+                "trademark_branding_check",
+                "trademark_third_party_check",
+                "refresh_trademark_cache",
             ],
         )
 
@@ -311,6 +315,7 @@ class ProtocolTests(unittest.TestCase):
             mail_api_base="https://example.test/api",
             release_dist_base="/tmp/dist",
             release_archive_base="/tmp/archive",
+            trademark_cache=None,
         )
 
     def test_main_dispatches_to_http_when_flag_is_set(self) -> None:
