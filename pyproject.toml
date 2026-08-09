@@ -24,7 +24,7 @@ dependencies = [
   "apache-incubator-releases-mcp @ git+https://github.com/justinmclean/ReleaseMCP.git@master",
   "apache-podlings-mcp @ git+https://github.com/justinmclean/PodlingsMCP.git@master",
   "apache-trademark-mcp @ git+https://github.com/justinmclean/TrademarkMCP.git@main",
-  "mcp>=1.0.0",
+  "mcp>=1.0.0,<2.0.0",
 ]
 
 [project.scripts]
