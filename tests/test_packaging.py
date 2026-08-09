@@ -8,7 +8,7 @@ from pathlib import Path
 class PackagingDependencyTests(unittest.TestCase):
     def test_trademark_dependency_tracks_main_branch(self) -> None:
         pyproject = Path(__file__).resolve().parent.parent / "pyproject.toml"
-        project = tomllib.loads(pyproject.read_text())
+        project = tomllib.loads(pyproject.read_text(encoding="utf-8"))
         dependencies = project["project"]["dependencies"]
         self.assertIn(
             "apache-trademark-mcp @ git+https://github.com/justinmclean/TrademarkMCP.git@main",
