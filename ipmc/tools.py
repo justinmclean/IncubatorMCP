@@ -1846,9 +1846,10 @@ def tool_trademark_naming_check(arguments: dict[str, Any]) -> dict[str, Any]:
     proposed_name = require_string(arguments, "proposed_name")
     technical_description = optional_string(arguments, "technical_description")
     include_external_search = optional_boolean(arguments, "include_external_search", False) or False
-    asf_min_similarity = optional_number(
-        arguments, "asf_min_similarity", DEFAULT_TRADEMARK_NAME_SIMILARITY
-    ) or DEFAULT_TRADEMARK_NAME_SIMILARITY
+    asf_min_similarity = (
+        optional_number(arguments, "asf_min_similarity", DEFAULT_TRADEMARK_NAME_SIMILARITY)
+        or DEFAULT_TRADEMARK_NAME_SIMILARITY
+    )
     trademark_cache = optional_string(arguments, "trademark_cache")
 
     result = load_proposed_name_check(
@@ -1922,9 +1923,7 @@ def tool_trademark_branding_check(arguments: dict[str, Any]) -> dict[str, Any]:
         if not url:
             url = _podling_website_url(podling_record)
             if not url:
-                raise ValueError(
-                    f"Podling '{podling}' has no website URL in podlings.xml; pass an explicit 'url'."
-                )
+                raise ValueError(f"Podling '{podling}' has no website URL in podlings.xml; pass an explicit 'url'.")
         if not project_name:
             project_name = str(podling_record.get("name") or "")
         if stage is None:
