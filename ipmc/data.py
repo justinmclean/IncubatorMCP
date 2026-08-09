@@ -1205,9 +1205,7 @@ def load_project_website_branding_check(
         ) | {"target_url": url, "available": False}
 
     if stage not in trademark_policy.VALID_BRANDING_STAGES:
-        raise ValueError(
-            f"'stage' must be one of: {', '.join(sorted(trademark_policy.VALID_BRANDING_STAGES))}"
-        )
+        raise ValueError(f"'stage' must be one of: {', '.join(sorted(trademark_policy.VALID_BRANDING_STAGES))}")
 
     if trademark_cache:
         configure_defaults(trademark_cache=trademark_cache)
@@ -1272,9 +1270,7 @@ def load_third_party_use_check(
 
     asf_projects = trademark_projects.fetch_projects(cache_dir=cache_dir)
     known_marks = trademark_compliance.project_names_for_bare_scan(asf_projects)
-    report = trademark_compliance.check_third_party_use(
-        page, mark=mark or None, known_marks=known_marks
-    )
+    report = trademark_compliance.check_third_party_use(page, mark=mark or None, known_marks=known_marks)
 
     payload = report.to_dict()
     payload.update(
@@ -1292,9 +1288,7 @@ def load_third_party_use_check(
 def refresh_trademark_project_cache(trademark_cache: str | None = None) -> dict[str, Any]:
     """Force a fresh fetch of the ASF committees+podlings list used by the trademark MCP."""
     if trademark_projects is None:
-        return _trademark_unavailable_meta(
-            "apache-trademark-mcp is not installed."
-        ) | {"cached": False}
+        return _trademark_unavailable_meta("apache-trademark-mcp is not installed.") | {"cached": False}
 
     if trademark_cache:
         configure_defaults(trademark_cache=trademark_cache)

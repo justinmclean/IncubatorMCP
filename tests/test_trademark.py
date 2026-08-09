@@ -16,8 +16,7 @@ def _projects_fixture() -> list[dict[str, Any]]:
 
 class ProposedNameCheckTests(unittest.TestCase):
     def test_unavailable_when_package_missing(self) -> None:
-        with mock.patch.object(data, "trademark_projects", None), \
-                mock.patch.object(data, "trademark_policy", None):
+        with mock.patch.object(data, "trademark_projects", None), mock.patch.object(data, "trademark_policy", None):
             payload = data.load_proposed_name_check("Quux")
         self.assertFalse(payload["available"])
         self.assertEqual(payload["proposed_name"], "Quux")
@@ -39,9 +38,11 @@ class ProposedNameCheckTests(unittest.TestCase):
         fake_projects.cache_age_hours.return_value = 1.0
         fake_projects.cache_dir_from_env.return_value = "/tmp/cache"
 
-        with mock.patch.object(data, "trademark_projects", fake_projects), \
-                mock.patch.object(data, "trademark_policy", fake_policy), \
-                mock.patch.object(data, "trademark_search", None):
+        with (
+            mock.patch.object(data, "trademark_projects", fake_projects),
+            mock.patch.object(data, "trademark_policy", fake_policy),
+            mock.patch.object(data, "trademark_search", None),
+        ):
             payload = data.load_proposed_name_check("Quux")
 
         self.assertTrue(payload["available"])
@@ -69,9 +70,11 @@ class ProposedNameCheckTests(unittest.TestCase):
         fake_projects.cache_age_hours.return_value = 0.0
         fake_projects.cache_dir_from_env.return_value = "/tmp/cache"
 
-        with mock.patch.object(data, "trademark_projects", fake_projects), \
-                mock.patch.object(data, "trademark_policy", fake_policy), \
-                mock.patch.object(data, "trademark_search", None):
+        with (
+            mock.patch.object(data, "trademark_projects", fake_projects),
+            mock.patch.object(data, "trademark_policy", fake_policy),
+            mock.patch.object(data, "trademark_search", None),
+        ):
             payload = data.load_proposed_name_check("Foo")
 
         self.assertEqual(payload["verdict"], "FAIL")
@@ -81,20 +84,24 @@ class ProposedNameCheckTests(unittest.TestCase):
 
 class BrandingCheckTests(unittest.TestCase):
     def test_unavailable_when_package_missing(self) -> None:
-        with mock.patch.object(data, "trademark_compliance", None), \
-                mock.patch.object(data, "trademark_web", None), \
-                mock.patch.object(data, "trademark_projects", None), \
-                mock.patch.object(data, "trademark_policy", None):
+        with (
+            mock.patch.object(data, "trademark_compliance", None),
+            mock.patch.object(data, "trademark_web", None),
+            mock.patch.object(data, "trademark_projects", None),
+            mock.patch.object(data, "trademark_policy", None),
+        ):
             payload = data.load_project_website_branding_check("https://foo.apache.org")
         self.assertFalse(payload["available"])
         self.assertEqual(payload["target_url"], "https://foo.apache.org")
 
     def test_invalid_stage_raises(self) -> None:
         fake_policy = mock.Mock(VALID_BRANDING_STAGES={"podling", "graduation", "tlp"})
-        with mock.patch.object(data, "trademark_compliance", mock.Mock()), \
-                mock.patch.object(data, "trademark_web", mock.Mock()), \
-                mock.patch.object(data, "trademark_projects", mock.Mock()), \
-                mock.patch.object(data, "trademark_policy", fake_policy):
+        with (
+            mock.patch.object(data, "trademark_compliance", mock.Mock()),
+            mock.patch.object(data, "trademark_web", mock.Mock()),
+            mock.patch.object(data, "trademark_projects", mock.Mock()),
+            mock.patch.object(data, "trademark_policy", fake_policy),
+        ):
             with self.assertRaises(ValueError):
                 data.load_project_website_branding_check("https://foo.apache.org", stage="bogus")
 
@@ -125,10 +132,12 @@ class BrandingCheckTests(unittest.TestCase):
         fake_policy = mock.Mock(VALID_BRANDING_STAGES={"podling", "graduation", "tlp"})
         fake_policy.branding_checklist.return_value = {"stage": "podling", "items": []}
 
-        with mock.patch.object(data, "trademark_compliance", fake_compliance), \
-                mock.patch.object(data, "trademark_web", fake_web), \
-                mock.patch.object(data, "trademark_projects", fake_projects), \
-                mock.patch.object(data, "trademark_policy", fake_policy):
+        with (
+            mock.patch.object(data, "trademark_compliance", fake_compliance),
+            mock.patch.object(data, "trademark_web", fake_web),
+            mock.patch.object(data, "trademark_projects", fake_projects),
+            mock.patch.object(data, "trademark_policy", fake_policy),
+        ):
             payload = data.load_project_website_branding_check(
                 "https://foo.apache.org", project_name="Foo", stage="podling"
             )
@@ -144,10 +153,12 @@ class BrandingCheckTests(unittest.TestCase):
         fake_web.fetch_page.side_effect = RuntimeError("network down")
         fake_policy = mock.Mock(VALID_BRANDING_STAGES={"podling", "graduation", "tlp"})
 
-        with mock.patch.object(data, "trademark_compliance", mock.Mock()), \
-                mock.patch.object(data, "trademark_web", fake_web), \
-                mock.patch.object(data, "trademark_projects", mock.Mock()), \
-                mock.patch.object(data, "trademark_policy", fake_policy):
+        with (
+            mock.patch.object(data, "trademark_compliance", mock.Mock()),
+            mock.patch.object(data, "trademark_web", fake_web),
+            mock.patch.object(data, "trademark_projects", mock.Mock()),
+            mock.patch.object(data, "trademark_policy", fake_policy),
+        ):
             payload = data.load_project_website_branding_check("https://foo.apache.org")
         self.assertFalse(payload["available"])
         self.assertIn("network down", payload["reason"])
@@ -177,9 +188,11 @@ class ThirdPartyCheckTests(unittest.TestCase):
         fake_projects.fetch_projects.return_value = []
         fake_projects.cache_dir_from_env.return_value = "/tmp/cache"
 
-        with mock.patch.object(data, "trademark_compliance", fake_compliance), \
-                mock.patch.object(data, "trademark_web", fake_web), \
-                mock.patch.object(data, "trademark_projects", fake_projects):
+        with (
+            mock.patch.object(data, "trademark_compliance", fake_compliance),
+            mock.patch.object(data, "trademark_web", fake_web),
+            mock.patch.object(data, "trademark_projects", fake_projects),
+        ):
             payload = data.load_third_party_use_check("https://third.example", mark="Kafka")
 
         self.assertTrue(payload["available"])
@@ -207,9 +220,7 @@ class TrademarkToolDispatchTests(unittest.TestCase):
     def test_configure_sources_accepts_trademark_cache(self) -> None:
         payload = tools.tool_configure_sources({"trademark_cache": "/tmp/trademark-cache"})
         self.assertIn("trademark_cache", payload["updated"])
-        self.assertEqual(
-            payload["source_defaults"]["effective"]["trademark_cache"], "/tmp/trademark-cache"
-        )
+        self.assertEqual(payload["source_defaults"]["effective"]["trademark_cache"], "/tmp/trademark-cache")
 
     def test_naming_tool_passes_through(self) -> None:
         fake_payload = {
@@ -226,9 +237,7 @@ class TrademarkToolDispatchTests(unittest.TestCase):
             "cache_age_hours": 0.5,
         }
         with mock.patch.object(tools, "load_proposed_name_check", return_value=fake_payload) as loader:
-            payload = tools.tool_trademark_naming_check(
-                {"proposed_name": "Quux", "include_external_search": False}
-            )
+            payload = tools.tool_trademark_naming_check({"proposed_name": "Quux", "include_external_search": False})
         loader.assert_called_once()
         self.assertEqual(payload["generated_for"], "trademark_naming_check")
         self.assertEqual(payload["verdict"], "PASS")
@@ -255,8 +264,10 @@ class TrademarkToolDispatchTests(unittest.TestCase):
             "fetch_error": None,
             "cache_dir": None,
         }
-        with mock.patch.object(tools, "load_podlings", return_value=(fake_podlings, {"source": "x"})), \
-                mock.patch.object(tools, "load_project_website_branding_check", return_value=fake_payload) as loader:
+        with (
+            mock.patch.object(tools, "load_podlings", return_value=(fake_podlings, {"source": "x"})),
+            mock.patch.object(tools, "load_project_website_branding_check", return_value=fake_payload) as loader,
+        ):
             payload = tools.tool_trademark_branding_check({"podling": "Alpha"})
         loader.assert_called_once()
         called_url = loader.call_args.args[0]
