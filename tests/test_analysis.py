@@ -482,6 +482,25 @@ class AnalysisTests(unittest.TestCase):
         )
         self.assertEqual(not_yet_ready["assessment"], "not_yet_ready")
 
+    def test_readiness_assessment_requires_release_in_12m_window(self) -> None:
+        active = {
+            "commits": 300,
+            "unique_committers": 40,
+            "unique_authors": 40,
+            "releases": 0,
+            "reports_count": 1,
+            "avg_mentor_signoffs": 2.0,
+        }
+        no_release = readiness_assessment(make_record(metrics=active, twelve_month_metrics=active))
+        self.assertEqual(no_release["dimension_scores"]["release_maturity"], "weak")
+        self.assertNotEqual(no_release["assessment"], "ready")
+
+        released_earlier_in_year = readiness_assessment(
+            make_record(metrics=active, twelve_month_metrics={**active, "releases": 1})
+        )
+        self.assertEqual(released_earlier_in_year["dimension_scores"]["release_maturity"], "strong")
+        self.assertEqual(released_earlier_in_year["assessment"], "ready")
+
     def test_community_pattern_paths(self) -> None:
         self.assertEqual(community_pattern(make_record(metrics=None)), "missing_health_data")
         self.assertEqual(
