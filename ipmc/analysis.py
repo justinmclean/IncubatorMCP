@@ -58,6 +58,31 @@ def trend_from_metrics(metrics: dict[str, Any] | None, fields: list[str]) -> str
     return "stable"
 
 
+def reconcile_trajectory_and_readiness(trend: str, assessment: str) -> str | None:
+    """Explain an apparent conflict between short-window trend and readiness level.
+
+    ``trend`` measures direction within the preferred health window, while
+    ``assessment`` measures levels across readiness dimensions. A podling can be
+    at strong levels while one tracked metric dips, or improving from a weak
+    base, so the two can legitimately disagree. Returning an explicit note keeps
+    consumers from reading two unqualified headline strings as a contradiction.
+    """
+
+    if trend == "worsening" and assessment in {"ready", "near_ready"}:
+        return (
+            "Trajectory and readiness point in different directions. Readiness reflects overall "
+            "levels, which remain strong, while the trend reflects a recent decline in at least one "
+            "tracked activity metric. Read this as strong but softening, not as a contradiction."
+        )
+    if trend == "improving" and assessment in {"at_risk", "not_yet_ready"}:
+        return (
+            "Trajectory and readiness point in different directions. The trend reflects recent "
+            "improvement, while readiness reflects levels that are still weak. Read this as "
+            "improving from a low base, not as a contradiction."
+        )
+    return None
+
+
 @dataclass
 class Signal:
     signal: str

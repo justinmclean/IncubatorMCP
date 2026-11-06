@@ -11,6 +11,7 @@ from .analysis import (
     evaluate_record,
     readiness_assessment,
     recent_change_events,
+    reconcile_trajectory_and_readiness,
     release_visibility_signals,
     report_narrative_signals,
     reporting_gap_signals,
@@ -827,21 +828,27 @@ def tool_podling_brief(arguments: dict[str, Any]) -> dict[str, Any]:
     if brief_format == "detailed" and focus:
         recent_trajectory += f" Focus areas requested: {', '.join(focus)}."
 
+    trajectory_readiness_note = reconcile_trajectory_and_readiness(evaluation["trend"], readiness["assessment"])
+
+    candidate_sources = [
+        (data["podlings_source"], str(data["podlings_source"].get("source") or "")),
+        (data["health_source"], _source_location(data["health_source"])),
+        (_report_source_meta(data), _source_location(_report_source_meta(data))),
+        (_mail_source_meta(data), _source_location(_mail_source_meta(data))),
+    ]
+    sources_used = [location for meta, location in candidate_sources if location and meta.get("available", True)]
+
     return {
         "podling": record.name,
         "status_summary": status_summary,
         "recent_trajectory": recent_trajectory,
+        "trajectory_readiness_note": trajectory_readiness_note,
         "key_health_indicators": indicators,
         "active_concerns": concerns,
         "mentor_attention_areas": mentor_attention,
         "ipmc_attention_areas": ipmc_attention,
         "outlook": readiness["summary"],
-        "sources_used": [
-            str(data["podlings_source"].get("source")),
-            _source_location(data["health_source"]),
-            _source_location(_report_source_meta(data)),
-            _source_location(_mail_source_meta(data)),
-        ],
+        "sources_used": sources_used,
         "explainability": _explainability(
             record,
             [
