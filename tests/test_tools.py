@@ -515,6 +515,85 @@ class ToolTests(unittest.TestCase):
         self.assertTrue(payload["mentor_attention_areas"] or payload["ipmc_attention_areas"])
         assert_explainability(self, payload["explainability"])
 
+    def test_podling_brief_omits_unavailable_sources(self) -> None:
+        record = OversightRecord(
+            podling={"name": "Quiet", "status": "current", "mentors": ["A", "B"]},
+            report_summary=None,
+            preferred_window=None,
+            preferred_metrics=None,
+            reporting_window=None,
+            reporting_metrics=None,
+            as_of_date="2026-04-18",
+        )
+        data = {
+            "records": [record],
+            "podlings_source": {"source": "podlings.xml"},
+            "health_source": {"reports_dir": "reports"},
+            "report_source": {"reports_dir": "", "available": False},
+            "mail_source": {"source": "not_loaded", "available": False},
+        }
+        with mock.patch.object(tools, "build_records", return_value=data):
+            payload = tools.tool_podling_brief({"podling": "Quiet"})
+
+        self.assertEqual(payload["sources_used"], ["podlings.xml", "reports"])
+        self.assertNotIn("not_loaded", payload["sources_used"])
+
+    def test_podling_brief_reports_trajectory_readiness_note_field(self) -> None:
+        with make_fixture_sources() as (podlings_source, health_source):
+            payload = tools.tool_podling_brief(
+                {
+                    "podlings_source": podlings_source,
+                    "health_source": health_source,
+                    "podling": "Bravo",
+                    "as_of_date": "2026-04-18",
+                }
+            )
+
+        self.assertIn("trajectory_readiness_note", payload)
+        note = payload["trajectory_readiness_note"]
+        self.assertTrue(note is None or isinstance(note, str))
+
+    def test_podling_brief_explains_strong_levels_with_worsening_trend(self) -> None:
+        record = OversightRecord(
+            podling={"name": "Quiet", "status": "current", "mentors": ["A", "B"]},
+            report_summary=None,
+            preferred_window=None,
+            preferred_metrics=None,
+            reporting_window=None,
+            reporting_metrics=None,
+            as_of_date="2026-04-18",
+        )
+        data = {
+            "records": [record],
+            "podlings_source": {"source": "podlings.xml"},
+            "health_source": {"reports_dir": "reports"},
+        }
+        with (
+            mock.patch.object(tools, "build_records", return_value=data),
+            mock.patch.object(
+                tools,
+                "evaluate_record",
+                return_value={"trend": "worsening", "signals": [], "severity": "low"},
+            ),
+            mock.patch.object(
+                tools,
+                "readiness_assessment",
+                return_value={
+                    "assessment": "ready",
+                    "summary": "Strong readiness signals.",
+                    "strengths": [],
+                    "blockers": [],
+                    "missing_evidence": [],
+                },
+            ),
+        ):
+            payload = tools.tool_podling_brief({"podling": "Quiet"})
+
+        self.assertIn("worsening", payload["recent_trajectory"])
+        self.assertIn("Strong readiness", payload["outlook"])
+        self.assertIsNotNone(payload["trajectory_readiness_note"])
+        self.assertIn("strong but softening", payload["trajectory_readiness_note"])
+
     def test_podling_brief_without_metrics_or_months(self) -> None:
         record = OversightRecord(
             podling={"name": "Quiet", "status": "current", "mentors": ["A", "B"]},

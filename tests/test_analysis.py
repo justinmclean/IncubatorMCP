@@ -9,6 +9,7 @@ from ipmc.analysis import (
     cross_source_mismatches,
     evaluate_record,
     readiness_assessment,
+    reconcile_trajectory_and_readiness,
     report_narrative_signals,
     reporting_reliability_pattern,
     severity_at_least,
@@ -648,3 +649,26 @@ class AnalysisTests(unittest.TestCase):
         self.assertEqual(reporting_reliability_pattern(repeated_missing)["category"], "repeated_missing")
         self.assertEqual(reporting_reliability_pattern(young_no_reports)["category"], "reporting_data_unavailable")
         self.assertEqual(reporting_reliability_pattern(no_health_report)["category"], "reporting_data_unavailable")
+
+
+class ReconcileTrajectoryAndReadinessTests(unittest.TestCase):
+    def test_strong_levels_with_worsening_trend_is_explained(self) -> None:
+        note = reconcile_trajectory_and_readiness("worsening", "ready")
+        assert note is not None
+        self.assertIn("strong but softening", note)
+
+    def test_near_ready_with_worsening_trend_is_explained(self) -> None:
+        self.assertIsNotNone(reconcile_trajectory_and_readiness("worsening", "near_ready"))
+
+    def test_weak_levels_with_improving_trend_is_explained(self) -> None:
+        note = reconcile_trajectory_and_readiness("improving", "at_risk")
+        assert note is not None
+        self.assertIn("improving from a low base", note)
+
+    def test_agreeing_signals_return_no_note(self) -> None:
+        self.assertIsNone(reconcile_trajectory_and_readiness("improving", "ready"))
+        self.assertIsNone(reconcile_trajectory_and_readiness("worsening", "at_risk"))
+
+    def test_unknown_trend_returns_no_note(self) -> None:
+        self.assertIsNone(reconcile_trajectory_and_readiness("unknown", "ready"))
+        self.assertIsNone(reconcile_trajectory_and_readiness("stable", "at_risk"))

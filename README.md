@@ -430,6 +430,16 @@ Arguments:
 - `focus`: optional area list
 - `brief_format`: optional `summary` or `detailed`
 
+`recent_trajectory` reports direction within the preferred health window, while
+`outlook` reports readiness levels. These can legitimately disagree, so
+`trajectory_readiness_note` carries an explanation when they do and is `null`
+when they agree.
+
+`sources_used` lists only sources that were actually available for the call, so
+a skipped or missing source is absent rather than appearing as a placeholder
+location. Availability and the reason for it remain in the `explainability`
+block.
+
 ### `mentoring_attention_needed`
 
 Return podlings where mentoring intervention appears necessary.
