@@ -820,7 +820,11 @@ def readiness_assessment(record: OversightRecord, strict_mode: bool = False) -> 
     community_independence = (
         "strong" if unique_committers >= 4 and unique_authors >= 5 else "mixed" if unique_committers >= 3 else "weak"
     )
-    release_maturity = "strong" if releases >= 1 else "mixed" if commits >= 15 else "weak"
+    # A podling with no release in the 12m window cannot be rated ready, however active it is.
+    releases_12m = release_stall_releases(record)
+    if isinstance(releases_12m, int | float):
+        releases = releases_12m
+    release_maturity = "strong" if releases >= 1 else "weak"
     governance_health = (
         "strong" if reports_count >= 1 and record.mentor_count >= 2 else "mixed" if reports_count >= 1 else "weak"
     )
