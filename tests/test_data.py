@@ -708,7 +708,7 @@ class DataTests(unittest.TestCase):
         module.release_overview.assert_called_once_with(
             "Alpha",
             archive_base=data.DEFAULT_RELEASE_ARCHIVE_BASE,
-            max_depth=1,
+            max_depth=data.RELEASE_MAX_DEPTH,
             include_platforms=True,
             github_project="alpha-project",
             docker_images=["apache/alpha"],
@@ -734,7 +734,7 @@ class DataTests(unittest.TestCase):
         module.release_overview.assert_called_once_with(
             "Alpha",
             archive_base=data.DEFAULT_RELEASE_ARCHIVE_BASE,
-            max_depth=1,
+            max_depth=data.RELEASE_MAX_DEPTH,
             release_page_url="https://alpha.apache.org/downloads",
         )
         self.assertEqual(evidence["release_page_checks"], {"available": True, "hints": []})
@@ -758,7 +758,7 @@ class DataTests(unittest.TestCase):
         module.release_overview.assert_called_once_with(
             "Alpha",
             archive_base=data.DEFAULT_RELEASE_ARCHIVE_BASE,
-            max_depth=1,
+            max_depth=data.RELEASE_MAX_DEPTH,
         )
         self.assertEqual(evidence["release_page_checks"]["location"], "https://alpha.incubator.apache.org/download/")
 
@@ -776,7 +776,7 @@ class DataTests(unittest.TestCase):
         module.release_overview.assert_called_once_with(
             "Alpha",
             archive_base=data.DEFAULT_RELEASE_ARCHIVE_BASE,
-            max_depth=1,
+            max_depth=data.RELEASE_MAX_DEPTH,
         )
         self.assertEqual(evidence["dist_base"], "https://alpha.incubator.apache.org/download.html")
 
@@ -842,7 +842,7 @@ class DataTests(unittest.TestCase):
             "does not support platform distribution hints", evidence["platform_distribution_checks"]["reason"]
         )
 
-    def test_load_podling_release_artifacts_defaults_to_one_level_scan(self) -> None:
+    def test_load_podling_release_artifacts_defaults_to_two_level_scan(self) -> None:
         module = mock.Mock()
         module.release_overview.return_value = {
             "podling": "Alpha",
@@ -852,7 +852,7 @@ class DataTests(unittest.TestCase):
         with mock.patch.object(data, "incubator_releases", module):
             data.load_podling_release_artifacts("Alpha")
 
-        self.assertEqual(module.release_overview.call_args.kwargs["max_depth"], 1)
+        self.assertEqual(module.release_overview.call_args.kwargs["max_depth"], 2)
 
     def test_default_health_source_matches_health_mcp_default(self) -> None:
         self.assertEqual(data.DEFAULT_HEALTH_SOURCE, "reports")
