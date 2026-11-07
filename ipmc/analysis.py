@@ -792,6 +792,15 @@ def stalled_podling_signal(record: OversightRecord) -> dict[str, Any] | None:
 
 
 def confidence_for_record(record: OversightRecord) -> str:
+    """Confidence in an opinion, from metric coverage and source coverage.
+
+    Metric coverage sets the base level from how many of the core health and
+    reporting fields are populated. Source coverage then caps it: an opinion
+    is never "high" while the cached Incubator reports or the cached
+    general-list mail for the podling are missing, because those are the
+    sources the release and narrative evidence come from. The missing items
+    are listed in the explainability block alongside this value.
+    """
     metrics = record.preferred_metrics
     reporting_metrics = record.reporting_metrics or {}
     if metrics is None:
@@ -802,10 +811,14 @@ def confidence_for_record(record: OversightRecord) -> str:
     combined_metrics = {**metrics, **reporting_metrics}
     populated = sum(1 for field in required if combined_metrics.get(field) is not None)
     if populated >= 4:
-        return "high"
-    if populated >= 2:
+        level = "high"
+    elif populated >= 2:
+        level = "medium"
+    else:
+        level = "low"
+    if level == "high" and not (record.incubator_reports and record.incubator_general_mail):
         return "medium"
-    return "low"
+    return level
 
 
 def readiness_assessment(record: OversightRecord, strict_mode: bool = False) -> dict[str, Any]:
