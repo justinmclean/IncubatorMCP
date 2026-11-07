@@ -395,6 +395,21 @@ class DataTests(unittest.TestCase):
                     {"id": "alpha-old", "subject": "[VOTE] Release Alpha 0.1.0", "date": "2025-06-01 00:00:00 UTC"},
                 ]
             },
+            {
+                "emails": [
+                    {
+                        "id": "alpha-new",
+                        "subject": "[RESULT][VOTE] Release Alpha 0.2.0",
+                        "date": "2026-04-20 00:00:00 UTC",
+                    },
+                    {
+                        "id": "alpha-result-old",
+                        "subject": "[RESULT][VOTE] Release Alpha 0.1.0",
+                        "date": "2025-06-05 00:00:00 UTC",
+                    },
+                ]
+            },
+            {"emails": []},
             {"emails": []},
         ]
 
@@ -407,16 +422,22 @@ class DataTests(unittest.TestCase):
                         mail_api_base="https://example.test/api",
                     )
 
-        self.assertEqual(module.fetch_mail_stats.call_count, 2)
+        self.assertEqual(module.fetch_mail_stats.call_count, 4)
         module.fetch_mail_stats.assert_any_call(
             api_base="https://example.test/api",
             timespan=data.DEFAULT_MAIL_SEARCH_TIMESPAN,
             query="Alpha",
             limit=data.DEFAULT_MAIL_QUERY_LIMIT,
         )
+        module.fetch_mail_stats.assert_any_call(
+            api_base="https://example.test/api",
+            timespan=data.DEFAULT_MAIL_SEARCH_TIMESPAN,
+            query="Alpha result",
+            limit=data.RESULT_MAIL_QUERY_LIMIT,
+        )
         store.assert_called_once()
         self.assertEqual(store.call_args.kwargs["query"], "Alpha")
-        self.assertEqual([m["id"] for m in mail["alpha"]], ["alpha-new", "alpha-old"])
+        self.assertEqual([m["id"] for m in mail["alpha"]], ["alpha-new", "alpha-old", "alpha-result-old"])
         self.assertNotIn("bravo", mail)
         self.assertEqual(meta["mode"], "live")
         self.assertEqual(meta["source"], "https://example.test/api")
@@ -472,6 +493,8 @@ class DataTests(unittest.TestCase):
                 ]
             },
             {"emails": []},
+            {"emails": []},
+            {"emails": []},
         ]
 
         with mock.patch.object(data.Path, "exists", return_value=False):
@@ -481,7 +504,7 @@ class DataTests(unittest.TestCase):
                     mail_api_base="https://example.test/api",
                 )
 
-        self.assertEqual(module.fetch_mail_stats.call_count, 2)
+        self.assertEqual(module.fetch_mail_stats.call_count, 4)
         module.fetch_mail_stats.assert_any_call(
             api_base="https://example.test/api",
             timespan=data.DEFAULT_MAIL_SEARCH_TIMESPAN,
@@ -508,7 +531,8 @@ class DataTests(unittest.TestCase):
                         "date": "2026-04-20 00:00:00 UTC",
                     }
                 ]
-            }
+            },
+            {"emails": []},
         ]
 
         with mock.patch.object(data.Path, "exists", return_value=True):
@@ -521,7 +545,8 @@ class DataTests(unittest.TestCase):
                     )
 
         module.load_cached_mail.assert_called_once_with(cache_dir="/tmp/mail-cache")
-        module.fetch_mail_stats.assert_called_once_with(
+        self.assertEqual(module.fetch_mail_stats.call_count, 2)
+        module.fetch_mail_stats.assert_any_call(
             api_base="https://example.test/api",
             timespan=data.DEFAULT_MAIL_SEARCH_TIMESPAN,
             query="Alpha",

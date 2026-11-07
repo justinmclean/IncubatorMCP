@@ -29,6 +29,9 @@ DEFAULT_MAIL_SOURCE = ".cache/incubator-general-mail"
 DEFAULT_MAIL_API_BASE = "https://lists.apache.org/api"
 DEFAULT_MAIL_SEARCH_TIMESPAN = "lte=12M"
 DEFAULT_MAIL_QUERY_LIMIT = 20
+# Vote threads and their replies can fill the general search, so release
+# results get a search of their own with a larger limit.
+RESULT_MAIL_QUERY_LIMIT = 50
 DEFAULT_RELEASE_DIST_BASE = "https://dist.apache.org/repos/dist/release/incubator"
 DEFAULT_RELEASE_ARCHIVE_BASE = "https://archive.apache.org/dist/incubator"
 RELEASE_PAGE_LINK_LIMIT = 50
@@ -734,10 +737,23 @@ def load_incubator_general_mail(
         if fetcher is not None:
             live_attempted += 1
             try:
-                result = fetcher(api_base=api_base, timespan=timespan, query=podling_name, limit=limit)
-                live_slice = [
-                    message for message in result.get("emails", []) if _mail_matches_podling(message, podling_name)
-                ]
+                fetched: list[dict[str, Any]] = []
+                seen_ids: set[str] = set()
+                for query, query_limit in (
+                    (podling_name, limit),
+                    (f"{podling_name} result", max(limit, RESULT_MAIL_QUERY_LIMIT)),
+                ):
+                    result = fetcher(api_base=api_base, timespan=timespan, query=query, limit=query_limit)
+                    for message in result.get("emails", []):
+                        message_id = str(message.get("id") or "")
+                        if message_id and message_id in seen_ids:
+                            continue
+                        if not _mail_matches_podling(message, podling_name):
+                            continue
+                        if message_id:
+                            seen_ids.add(message_id)
+                        fetched.append(message)
+                live_slice = fetched
                 live_succeeded += 1
                 if live_slice and cache_exists:
                     written += _store_live_mail(cache_root, live_slice, query=podling_name, timespan=timespan)
