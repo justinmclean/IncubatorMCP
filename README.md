@@ -443,7 +443,20 @@ vote threads cannot push older release results out of view.
 - a release `[VOTE]` with no matching `[RESULT]` or `[CANCEL]` and mail in the
   last 21 days is listed in `open_release_votes` and in `missing_evidence`;
 - a retirement discussion in the last 12 months makes `governance_health` weak
-  and holds the verdict at `not_yet_ready`.
+  and holds the verdict at `not_yet_ready`;
+- a "status of" thread in the last 12 months, which is how the IPMC usually
+  opens a retirement question, is listed in `status_threads_12m` and in
+  `missing_evidence`.
+
+Only subjects that name a release (the word "release", a version or an RC
+number) count as release results or cancels, so a `[RESULT]` on an acceptance
+or graduation vote is not a release. Results and cancels are matched to their
+vote ignoring "Apache", "release", "vote" and outcome words such as "PASSED".
+
+`community_independence` is lowered one step when a podling more than six
+months into incubation says in its latest report that nobody has been elected
+since it started, or names no election in the last 12 months. An answer that
+reports an election without a date is not counted against it.
 
 A weak `release_maturity` also holds the verdict at `not_yet_ready`, however
 strong the other dimensions are: graduation requires releases.

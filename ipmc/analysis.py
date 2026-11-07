@@ -34,6 +34,38 @@ REPORT_COPY_FORWARD_SIMILARITY = 0.75
 RECENT_RELEASE_MAX_DAYS = 365
 HEALTH_DATA_MAX_AGE_DAYS = 31
 ISO_DATE_RE = re.compile(r"\b(\d{4}-\d{2}-\d{2})\b")
+# The podling's own answer to "When were the last committers or PPMC members
+# elected?", up to the next heading.
+ELECTIONS_ANSWER_RE = re.compile(
+    r"when were the last committers or ppmc members elected\??(.*?)(?=^\s*#|\Z)",
+    re.IGNORECASE | re.DOTALL | re.MULTILINE,
+)
+ANY_DATE_RE = re.compile(
+    r"\b(?P<iso>\d{4})-(?P<m>\d{1,2})-(?P<d>\d{1,2})\b"
+    r"|\b(?P<month>jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(?:\d{1,2}(?:st|nd|rd|th)?,?\s+)?(?P<year>\d{4})\b"
+    r"|\b\d{1,2}(?:st|nd|rd|th)?\s+(?P<month2>jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(?P<year2>\d{4})\b",
+    re.IGNORECASE,
+)
+MONTH_NUMBERS = {
+    name: index
+    for index, name in enumerate(
+        ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"], start=1
+    )
+}
+NO_ELECTION_RE = re.compile(
+    r"\b(?:founding|at founding|initial|accepted into|entered (?:the )?incubat|n/?a|none|not yet"
+    r"|no new|have not elected|haven't elected|not elected)\b",
+    re.IGNORECASE,
+)
+# An answer that reports an election without dating it: "The vote to add
+# Foo as a committer has passed".
+UNDATED_ELECTION_RE = re.compile(
+    r"\bvot(?:e|ed|ing)\b.{0,80}?\bpassed\b|\b(?:were|was|been) (?:elected|voted in|invited)\b",
+    re.IGNORECASE | re.DOTALL,
+)
+# A podling this long in incubation should have elected someone recently.
+ELECTION_EXPECTED_AFTER_MONTHS = 6
+RECENT_ELECTION_MAX_DAYS = 365
 
 
 def severity_value(value: str) -> int:
@@ -844,6 +876,54 @@ def last_release_date(record: OversightRecord) -> date | None:
     return max(found, default=None)
 
 
+def _dates_in(text: str) -> list[date]:
+    found: list[date] = []
+    for match in ANY_DATE_RE.finditer(text):
+        try:
+            if match.group("iso"):
+                found.append(date(int(match.group("iso")), int(match.group("m")), int(match.group("d"))))
+            else:
+                month = (match.group("month") or match.group("month2") or "").casefold()[:3]
+                year = int(match.group("year") or match.group("year2"))
+                found.append(date(year, MONTH_NUMBERS[month], 1))
+        except (KeyError, ValueError):
+            continue
+    return found
+
+
+def last_election(record: OversightRecord) -> tuple[str, date | None]:
+    """What the podling's latest report says about its last election.
+
+    Returns ("date", when) for an election after the podling started,
+    ("none", None) when the answer says nobody has been elected since the
+    start, or ("unknown", None) when there is no answer to read.
+    """
+    reference = _reference_date(record)
+    start = parse_iso_date(str(record.podling.get("startdate") or ""))
+    reports = [
+        entry
+        for entry in record.incubator_reports
+        if (parse_iso_date(str(entry.get("report_id") or "")[-10:]) or reference) <= reference
+    ]
+    if not reports:
+        return "unknown", None
+    latest = max(reports, key=lambda entry: str(entry.get("report_id") or ""))
+    match = ELECTIONS_ANSWER_RE.search(str(latest.get("body") or ""))
+    if match is None or not match.group(1).strip():
+        return "unknown", None
+    answer = match.group(1)
+    after_start = [
+        found for found in _dates_in(answer) if found <= reference and (start is None or (found - start).days > 31)
+    ]
+    if after_start:
+        return "date", max(after_start)
+    if UNDATED_ELECTION_RE.search(answer):
+        return "unknown", None
+    if _dates_in(answer) or NO_ELECTION_RE.search(answer):
+        return "none", None
+    return "unknown", None
+
+
 def health_data_age_days(record: OversightRecord) -> int | None:
     generated = parse_iso_date(str((record.report_summary or {}).get("generated_on") or ""))
     if generated is None:
@@ -924,13 +1004,24 @@ def _subject_key(subject: str) -> str:
 
 
 def _thread_core(key: str) -> str:
-    """Subject with its [TAGS], spacing and punctuation removed.
+    """Subject with its [TAGS], spacing, punctuation and filler words removed.
 
     "[VOTE]Release Foo 1.0(Round2)", "[RESULT][VOTE] Release Foo 1.0 (Round2)"
     and "[CANCEL][VOTE]Release Foo 1.0(Round2)" share one core, which ties a
-    result or cancel to the vote it closes.
+    result or cancel to the vote it closes. "Apache", "release", "vote" and
+    an outcome such as "PASSED" are dropped, since podlings add or leave
+    them out: "[VOTE] Release Foo 0.7.2" and "[RESULT] [VOTE] Release Apache
+    Foo 0.7.2 PASSED" are the same release.
     """
-    return re.sub(r"[^a-z0-9.]", "", re.sub(r"\[[^\]]*\]", "", key))
+    without_tags = re.sub(r"\[[^\]]*\]", " ", key)
+    without_words = re.sub(r"\b(?:apache|release|vote|passed|failed|approved|cancell?ed)\b", " ", without_tags)
+    return re.sub(r"[^a-z0-9.]", "", without_words)
+
+
+# A subject names a release when it says "release" or carries a version or
+# RC number. "[RESULT][VOTE] Accept Foo into the Apache Incubator" does not.
+RELEASE_SUBJECT_RE = re.compile(r"\brelease\b|\b\d+\.\d+|\brc\s*\d+\b")
+NOT_A_RELEASE_RE = re.compile(r"\b(?:accept|graduat|retir|proposal|committer|ppmc member|mentor)")
 
 
 def mail_signals(record: OversightRecord) -> dict[str, Any]:
@@ -956,13 +1047,12 @@ def mail_signals(record: OversightRecord) -> dict[str, Any]:
     def within_year(value: date | None) -> bool:
         return value is not None and 0 <= (reference - value).days <= 365
 
-    results = [
-        d for k, d in threads.items() if "[result]" in k and ("release" in k or "vote" in k) and "cancel" not in k
-    ]
+    def names_release(key: str) -> bool:
+        return bool(RELEASE_SUBJECT_RE.search(key)) and not NOT_A_RELEASE_RE.search(key)
+
+    results = [d for k, d in threads.items() if "[result" in k and names_release(k) and "cancel" not in k]
     cancels = [
-        d
-        for k, d in threads.items()
-        if ("[cancel" in k or "cancelled" in k or "canceled" in k) and ("vote" in k or "release" in k)
+        d for k, d in threads.items() if ("[cancel" in k or "cancelled" in k or "canceled" in k) and names_release(k)
     ]
     closed_cores = {
         _thread_core(k) for k in threads if "[result" in k or "[cancel" in k or "cancelled" in k or "canceled" in k
@@ -979,6 +1069,11 @@ def mail_signals(record: OversightRecord) -> dict[str, Any]:
         and 0 <= (reference - d).days <= OPEN_VOTE_MAX_DAYS
     )
     retirement = sorted(k for k, d in threads.items() if "retir" in k and within_year(d))
+    # "Discuss the status of Apache Foo" is how the IPMC usually opens a
+    # retirement question, without the word in the subject.
+    status = sorted(
+        k for k, d in threads.items() if re.search(r"\bstatus of\b", k) and "retir" not in k and within_year(d)
+    )
     graduation = sorted(k for k, d in threads.items() if "graduat" in k and within_year(d))
 
     latest_result = max((d for d in results if d is not None), default=None)
@@ -993,6 +1088,7 @@ def mail_signals(record: OversightRecord) -> dict[str, Any]:
         and not open_votes,
         "open_release_votes": open_votes,
         "retirement_threads_12m": retirement,
+        "status_threads_12m": status,
         "graduation_threads_12m": graduation,
     }
 
@@ -1038,6 +1134,20 @@ def readiness_assessment(record: OversightRecord, strict_mode: bool = False) -> 
     community_independence = (
         "strong" if unique_committers >= 4 and unique_authors >= 5 else "mixed" if unique_committers >= 3 else "weak"
     )
+    # Activity alone does not show independence: a podling that has elected
+    # nobody since it started, or nobody in the last year, is a step lower.
+    election_kind, election_date = last_election(record)
+    if (months or 0) >= ELECTION_EXPECTED_AFTER_MONTHS and (
+        election_kind == "none"
+        or (election_date is not None and (_reference_date(record) - election_date).days > RECENT_ELECTION_MAX_DAYS)
+    ):
+        community_independence = {"strong": "mixed", "mixed": "weak"}.get(
+            community_independence, community_independence
+        )
+        missing_evidence.append(
+            "A committer or PPMC member elected from the community in the last 12 months "
+            "(the latest report shows none)."
+        )
     # A podling with no release in the 12m window cannot be rated ready, however active it is.
     releases_12m = release_stall_releases(record)
     if isinstance(releases_12m, int | float):
@@ -1167,6 +1277,9 @@ def readiness_assessment(record: OversightRecord, strict_mode: bool = False) -> 
         next_steps.append("Encourage a visible, policy-compliant release cadence.")
     if signals is not None and signals["retirement_threads_12m"]:
         next_steps.append("Settle the retirement discussion on general@ before any graduation planning.")
+    if signals is not None and signals["status_threads_12m"]:
+        next_steps.append("Read the status discussion on general@; it may be a retirement question.")
+        missing_evidence.append("The outcome of the status discussion about the podling on general@.")
     if signoffs < 2.0:
         next_steps.append("Increase mentor engagement and report sign-off consistency.")
     if reports_count < 1:
