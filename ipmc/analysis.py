@@ -999,8 +999,13 @@ def source_freshness(record: OversightRecord) -> dict[str, Any]:
     }
 
 
+# Reply and forward prefixes, repeated or not, including the Chinese mail
+# clients' 回复 (reply), 答复 (reply) and 转发 (forward) with a full-width colon.
+REPLY_PREFIX_RE = re.compile(r"^(?:(?:re|fwd?|aw|回复|答复|转发)\s*[:：]\s*)+", re.IGNORECASE)
+
+
 def _subject_key(subject: str) -> str:
-    return re.sub(r"^(re|fwd?|aw)\s*:\s*", "", subject.strip(), flags=re.IGNORECASE).casefold()
+    return REPLY_PREFIX_RE.sub("", subject.strip()).casefold()
 
 
 def _thread_core(key: str) -> str:
@@ -1093,6 +1098,88 @@ def mail_signals(record: OversightRecord) -> dict[str, Any]:
     }
 
 
+# dev@ with no mail for this long is a quiet community, whatever the commit count says.
+DEV_MAIL_QUIET_DAYS = 90
+# Subjects that announce someone joining: "[ANNOUNCE] New committer: X",
+# "Welcome X as a new PPMC member", "New PPMC member: X".
+NEW_MEMBER_SUBJECT_RE = re.compile(
+    r"\bnew\s+(?:ppmc|pmc|committer)|\bwelcome\b.*\b(?:committer|ppmc|pmc)\b|\[announce\].*\b(?:committer|ppmc)\b"
+)
+# Automated reminders mention graduation in their bodies, never in a real
+# discussion subject, but are filtered out in case a subject quotes them.
+AUTOMATED_SUBJECT_RE = re.compile(r"\breport reminder\b")
+
+
+def dev_mail_signals(record: OversightRecord) -> dict[str, Any] | None:
+    """Community facts read from the podling's own dev@ subjects for the last year.
+
+    None when dev@ was not loaded. Only subjects and dates are read: a
+    retirement or graduation discussion, PPMC release votes (one still open
+    is under way), announcements of new committers or PPMC members, and how
+    recently and widely the list is used.
+    """
+    if not record.dev_mail_loaded:
+        return None
+    reference = _reference_date(record)
+    threads: dict[str, date | None] = {}
+    senders: set[str] = set()
+    latest_message: date | None = None
+    message_count = 0
+    for message in record.podling_dev_mail:
+        when = parse_iso_date(str(message.get("date") or "")[:10])
+        if when is not None and not 0 <= (reference - when).days <= 365:
+            continue
+        message_count += 1
+        if when is not None and (latest_message is None or when > latest_message):
+            latest_message = when
+        sender = re.sub(r"^.*<|>.*$", "", str(message.get("from") or message.get("sender") or "")).strip().casefold()
+        if sender:
+            senders.add(sender)
+        subject = str(message.get("subject") or "")
+        if not subject:
+            continue
+        key = _subject_key(subject)
+        if AUTOMATED_SUBJECT_RE.search(key):
+            continue
+        if key not in threads or (when is not None and (threads[key] is None or when > threads[key])):  # type: ignore[operator]
+            threads[key] = when
+
+    def names_release(key: str) -> bool:
+        return bool(RELEASE_SUBJECT_RE.search(key)) and not NOT_A_RELEASE_RE.search(key)
+
+    release_votes = [
+        (k, d)
+        for k, d in threads.items()
+        if "[vote" in k and "[result" not in k and "cancel" not in k and names_release(k)
+    ]
+    closed_cores = {
+        _thread_core(k) for k in threads if "[result" in k or "[cancel" in k or "cancelled" in k or "canceled" in k
+    }
+    open_votes = sorted(
+        k
+        for k, d in release_votes
+        if _thread_core(k) not in closed_cores and d is not None and (reference - d).days <= OPEN_VOTE_MAX_DAYS
+    )
+    vote_dates = [d for _, d in release_votes if d is not None]
+    new_members = [d for k, d in threads.items() if NEW_MEMBER_SUBJECT_RE.search(k) and "[vote" not in k]
+    latest_new_member = max((d for d in new_members if d is not None), default=None)
+    days_since_last = _days_between(latest_message, reference)
+    return {
+        "message_count_12m": message_count,
+        "thread_count_12m": len(threads),
+        "unique_senders_12m": len(senders),
+        "latest_message": latest_message.isoformat() if latest_message else None,
+        "days_since_last_message": days_since_last,
+        "quiet": days_since_last is None or days_since_last > DEV_MAIL_QUIET_DAYS,
+        "release_vote_threads_12m": len(release_votes),
+        "latest_release_vote": max(vote_dates).isoformat() if vote_dates else None,
+        "open_release_votes": open_votes,
+        "latest_new_member_announcement": latest_new_member.isoformat() if latest_new_member else None,
+        "retirement_threads_12m": sorted(k for k in threads if "retir" in k),
+        "graduation_threads_12m": sorted(k for k in threads if "graduat" in k),
+    }
+
+
 def readiness_assessment(record: OversightRecord, strict_mode: bool = False) -> dict[str, Any]:
     not_applicable = _graduated_or_retired(record)
     if not_applicable is not None:
@@ -1134,13 +1221,21 @@ def readiness_assessment(record: OversightRecord, strict_mode: bool = False) -> 
     community_independence = (
         "strong" if unique_committers >= 4 and unique_authors >= 5 else "mixed" if unique_committers >= 3 else "weak"
     )
+    dev_signals = dev_mail_signals(record)
+    mail_notes: list[str] = []
     # Activity alone does not show independence: a podling that has elected
     # nobody since it started, or nobody in the last year, is a step lower.
+    # A new committer or PPMC member announced on dev@ in the last year
+    # counts even when the latest report does not mention it yet.
     election_kind, election_date = last_election(record)
-    if (months or 0) >= ELECTION_EXPECTED_AFTER_MONTHS and (
+    dev_new_member = parse_iso_date((dev_signals or {}).get("latest_new_member_announcement"))
+    no_recent_election = (months or 0) >= ELECTION_EXPECTED_AFTER_MONTHS and (
         election_kind == "none"
         or (election_date is not None and (_reference_date(record) - election_date).days > RECENT_ELECTION_MAX_DAYS)
-    ):
+    )
+    if no_recent_election and dev_new_member is not None:
+        mail_notes.append(f"dev@ announces a new committer or PPMC member on {dev_new_member.isoformat()}.")
+    elif no_recent_election:
         community_independence = {"strong": "mixed", "mixed": "weak"}.get(
             community_independence, community_independence
         )
@@ -1177,7 +1272,6 @@ def readiness_assessment(record: OversightRecord, strict_mode: bool = False) -> 
 
     signals = mail_signals(record) if record.mail_loaded else None
     freshness = source_freshness(record)
-    mail_notes: list[str] = []
     if signals is not None and record.incubator_general_mail:
         if signals["ipmc_release_result_in_12m"] and release_maturity == "weak":
             release_maturity = "strong"
@@ -1196,11 +1290,37 @@ def readiness_assessment(record: OversightRecord, strict_mode: bool = False) -> 
                 f"A release vote is open on general@ ({signals['open_release_votes'][0]}); its result will settle"
                 " release maturity."
             )
-        if signals["retirement_threads_12m"]:
-            governance_health = "weak"
-            blockers.append("A retirement discussion about the podling is on general@ in the last 12 months.")
     elif record.mail_loaded:
         missing_evidence.append("No general@incubator mail about the podling was found to confirm release votes.")
+    retirement_lists = [
+        name
+        for name, found in (
+            ("general@", signals is not None and record.incubator_general_mail and signals["retirement_threads_12m"]),
+            ("dev@", dev_signals is not None and dev_signals["retirement_threads_12m"]),
+        )
+        if found
+    ]
+    retirement_where = " and ".join(retirement_lists)
+    if retirement_lists:
+        governance_health = "weak"
+        blockers.append(f"A retirement discussion about the podling is on {retirement_where} in the last 12 months.")
+    dev_open_votes = (dev_signals or {}).get("open_release_votes") or []
+    general_open_votes = (signals or {}).get("open_release_votes") or []
+    if dev_signals is not None:
+        if dev_signals["quiet"]:
+            blockers.append(
+                f"dev@ has had no mail for more than {DEV_MAIL_QUIET_DAYS} days"
+                + (f" (last on {dev_signals['latest_message']})." if dev_signals["latest_message"] else ".")
+            )
+        if dev_open_votes and not general_open_votes:
+            missing_evidence.append(
+                f"A PPMC release vote is under way on dev@ ({dev_open_votes[0]}); an IPMC vote on general@ should"
+                " follow."
+            )
+        if dev_signals["graduation_threads_12m"]:
+            mail_notes.append(f"dev@ has a graduation discussion ({dev_signals['graduation_threads_12m'][0]}).")
+    elif record.dev_mail_error:
+        missing_evidence.append(f"The podling's dev@ list could not be read ({record.dev_mail_error}).")
     for name in freshness["stale_sources"]:
         days = freshness["health_report_age_days" if name == "health_report" else "general_mail_age_days"]
         missing_evidence.append(
@@ -1247,10 +1367,11 @@ def readiness_assessment(record: OversightRecord, strict_mode: bool = False) -> 
         assessment = "not_yet_ready"
         summary = "The podling is progressing, but the evidence is not yet strong enough for graduation readiness."
 
-    if signals is not None and signals["retirement_threads_12m"] and assessment in {"ready", "near_ready"}:
+    if retirement_lists and assessment in {"ready", "near_ready"}:
         assessment = "not_yet_ready"
         summary = (
-            "A retirement discussion about the podling is open on general@, so it cannot be rated near graduation."
+            f"A retirement discussion about the podling is open on {retirement_where}, so it cannot be rated near"
+            " graduation."
         )
     elif release_maturity == "weak" and assessment in {"ready", "near_ready"}:
         assessment = "not_yet_ready"
@@ -1269,14 +1390,18 @@ def readiness_assessment(record: OversightRecord, strict_mode: bool = False) -> 
     next_steps = []
     if assessment in {"near_ready", "ready"}:
         next_steps.append("Review the podling with mentors to confirm whether a graduation plan is timely.")
-    if signals is not None and signals["open_release_votes"]:
+    if general_open_votes:
         next_steps.append("Follow the open release vote on general@ through to a [RESULT].")
+    elif dev_open_votes:
+        next_steps.append("Follow the PPMC release vote on dev@ through to an IPMC vote on general@.")
     elif signals is not None and signals["cancelled_after_last_result"]:
         next_steps.append("Help the podling fix what stopped the cancelled release vote and call a new one.")
     if releases < 1 or release_maturity == "weak":
         next_steps.append("Encourage a visible, policy-compliant release cadence.")
-    if signals is not None and signals["retirement_threads_12m"]:
-        next_steps.append("Settle the retirement discussion on general@ before any graduation planning.")
+    if retirement_lists:
+        next_steps.append(f"Settle the retirement discussion on {retirement_where} before any graduation planning.")
+    if dev_signals is not None and dev_signals["quiet"]:
+        next_steps.append("Ask the mentors why dev@ has gone quiet and where project discussion is happening.")
     if signals is not None and signals["status_threads_12m"]:
         next_steps.append("Read the status discussion on general@; it may be a retirement question.")
         missing_evidence.append("The outcome of the status discussion about the podling on general@.")
@@ -1296,6 +1421,7 @@ def readiness_assessment(record: OversightRecord, strict_mode: bool = False) -> 
         "dimension_scores": dimensions,
         "recommended_next_steps": next_steps,
         "mail_signals": signals,
+        "dev_mail_signals": dev_signals,
         "source_freshness": freshness,
     }
 

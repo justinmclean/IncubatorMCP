@@ -32,6 +32,9 @@ DEFAULT_MAIL_QUERY_LIMIT = 20
 # Vote threads and their replies can fill the general search, so release
 # results get a search of their own with a larger limit.
 RESULT_MAIL_QUERY_LIMIT = 50
+# A podling's own dev@ list is read for the year before the reference date.
+# A busy list has a few hundred messages a year, one request of a few seconds.
+DEV_MAIL_LOOKBACK_DAYS = 365
 DEFAULT_RELEASE_DIST_BASE = "https://dist.apache.org/repos/dist/release/incubator"
 DEFAULT_RELEASE_ARCHIVE_BASE = "https://archive.apache.org/dist/incubator"
 RELEASE_PAGE_LINK_LIMIT = 50
@@ -175,6 +178,10 @@ class OversightRecord:
     incubator_reports: list[dict[str, Any]] = field(default_factory=list)
     incubator_general_mail: list[dict[str, Any]] = field(default_factory=list)
     mail_loaded: bool = True
+    podling_dev_mail: list[dict[str, Any]] = field(default_factory=list)
+    dev_mail_loaded: bool = False
+    # Why dev@ could not be read, when a read was attempted and failed.
+    dev_mail_error: str | None = None
 
     @property
     def name(self) -> str:
@@ -806,6 +813,63 @@ def load_incubator_general_mail(
     return by_podling, meta
 
 
+def podling_slug(podling: dict[str, Any]) -> str | None:
+    """The podling's ASF slug, as used in <slug>.apache.org and its list addresses.
+
+    podlings.xml carries it in ``resource``; without one the name is lowercased
+    with anything other than letters and digits removed.
+    """
+    resource = podling.get("resource")
+    if isinstance(resource, dict):
+        resource = next(
+            (resource.get(key) for key in ("href", "url", "value") if isinstance(resource.get(key), str)), None
+        )
+    if isinstance(resource, str) and resource.strip() and not resource.strip().startswith(("http://", "https://")):
+        return resource.strip().lower()
+    name = re.sub(r"[^a-z0-9]", "", str(podling.get("name") or "").casefold())
+    return name or None
+
+
+def load_podling_dev_mail(
+    podling: dict[str, Any],
+    *,
+    mail_api_base: str | None = None,
+    as_of_date: str | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Return the podling's dev@ list for the year before the reference date, live.
+
+    The whole year is fetched and read locally rather than searched by
+    keyword: Pony Mail searches bodies as well as subjects and does not match
+    word stems, so "retire" misses "retirement" and "graduation" finds every
+    report reminder. A failure returns no messages and says why.
+    """
+    api_base = _resolved_mail_api_base(mail_api_base)
+    slug = podling_slug(podling)
+    meta: dict[str, Any] = {"source": api_base, "list": "dev", "podling": podling.get("name"), "slug": slug}
+    fetcher = getattr(incubator_mail_client, "fetch_podling_mail_stats", None)
+    if fetcher is None:
+        return [], meta | {
+            "available": False,
+            "reason": "Installed MailMCP does not provide fetch_podling_mail_stats.",
+        }
+    if not slug:
+        return [], meta | {"available": False, "reason": "No slug is known for the podling."}
+    reference = parse_iso_date(as_of_date) or date.today()
+    start = date.fromordinal(reference.toordinal() - DEV_MAIL_LOOKBACK_DAYS)
+    timespan = f"dfr={start.isoformat()}|dto={reference.isoformat()}"
+    try:
+        result = fetcher(podling=slug, list_name="dev", api_base=api_base, timespan=timespan)
+    except Exception as exc:  # noqa: BLE001 - dev@ evidence is optional; say why it is missing
+        return [], meta | {"available": False, "timespan": timespan, "reason": f"dev@ search failed: {exc}"}
+    messages = list(result.get("emails") or [])
+    return messages, meta | {
+        "available": True,
+        "list": result.get("list") or f"dev@{slug}.apache.org",
+        "timespan": timespan,
+        "message_count": len(messages),
+    }
+
+
 def refresh_incubator_general_mail_cache(
     mail_source: str | None = None,
     *,
@@ -1123,12 +1187,31 @@ def build_records(
                 )
             )
 
+    # The podling's own dev@ list is read only for single-podling calls: a
+    # year of one list is one request of a few seconds, too slow to repeat for
+    # every podling in an overview.
+    dev_mail_meta: dict[str, Any] = {
+        "source": "not_loaded",
+        "available": False,
+        "reason": "Podling dev@ mail is read only for single-podling mail views.",
+    }
+    if include_mail and requested_podling_key:
+        target = next((record for record in records if _podling_key(record.name) == requested_podling_key), None)
+        if target is not None:
+            target.podling_dev_mail, dev_mail_meta = load_podling_dev_mail(
+                target.podling, mail_api_base=mail_api_base, as_of_date=as_of_date
+            )
+            target.dev_mail_loaded = bool(dev_mail_meta.get("available"))
+            if not target.dev_mail_loaded:
+                target.dev_mail_error = str(dev_mail_meta.get("reason") or "dev@ could not be read.")
+
     return {
         "records": sorted(records, key=lambda item: item.name.casefold()),
         "podlings_source": podlings_meta,
         "health_source": health_meta,
         "report_source": report_meta,
         "mail_source": mail_meta,
+        "dev_mail_source": dev_mail_meta,
     }
 
 
