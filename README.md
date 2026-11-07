@@ -547,7 +547,7 @@ Opinionated outputs include an `explainability` object so IPMC members can chall
 
 - `source_data_used`: the podlings, apache-health, ReportMCP, and MailMCP fields that informed the opinion
 - `reasoning`: human-readable explanation of why the opinion was reached
-- `confidence`: high, medium, or low confidence in the opinion based on source coverage
+- `confidence`: high, medium, or low. Metric coverage sets the base level (how many of commits, unique committers, report count, mentor sign-offs and dev posters are populated); it is capped at medium while the cached Incubator reports or cached general-list mail for the podling are missing, and `missing` says which
 - `missing`: source evidence that is absent or would improve the assessment
 
 Per-podling tools attach this to podling-level judgments and supporting signals. The community-health summary attaches it to the overall summary and each derived risk theme.

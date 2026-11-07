@@ -27,6 +27,8 @@ def make_record(
     twelve_month_metrics: dict | None = None,
     startdate: str | None = "2024-01-01",
     as_of_date: str | None = "2026-04-18",
+    incubator_reports: list[dict] | None = None,
+    incubator_general_mail: list[dict] | None = None,
 ) -> OversightRecord:
     latest_metrics = {"3m": metrics}
     if twelve_month_metrics is not None:
@@ -44,6 +46,8 @@ def make_record(
         reporting_window="12m" if metrics is not None else None,
         reporting_metrics=twelve_month_metrics or metrics,
         as_of_date=as_of_date,
+        incubator_reports=incubator_reports or [],
+        incubator_general_mail=incubator_general_mail or [],
     )
 
 
@@ -414,25 +418,64 @@ class AnalysisTests(unittest.TestCase):
         self.assertTrue(any(signal.signal == "graduation_momentum" for signal in result["signals"]))
 
     def test_confidence_for_record_paths(self) -> None:
+        full_metrics = {
+            "commits": 30,
+            "unique_committers": 5,
+            "reports_count": 1,
+            "avg_mentor_signoffs": 2.0,
+            "dev_unique_posters": 7,
+        }
+        report = {"report_period": "2026-02", "body": "Report"}
+        mail = {"subject": "[RESULT][VOTE] Release Example 1.0.0"}
         self.assertEqual(confidence_for_record(make_record(metrics=None)), "low")
         self.assertEqual(confidence_for_record(make_record(mentors=[], metrics={"commits": 1})), "medium")
         self.assertEqual(
             confidence_for_record(
-                make_record(
-                    metrics={
-                        "commits": 30,
-                        "unique_committers": 5,
-                        "reports_count": 1,
-                        "avg_mentor_signoffs": 2.0,
-                        "dev_unique_posters": 7,
-                    }
-                )
+                make_record(metrics=full_metrics, incubator_reports=[report], incubator_general_mail=[mail])
             ),
             "high",
         )
         self.assertEqual(
             confidence_for_record(make_record(metrics={"commits": 1, "unique_committers": 1})),
             "medium",
+        )
+
+    def test_confidence_is_capped_without_source_coverage(self) -> None:
+        full_metrics = {
+            "commits": 30,
+            "unique_committers": 5,
+            "reports_count": 1,
+            "avg_mentor_signoffs": 2.0,
+            "dev_unique_posters": 7,
+        }
+        report = {"report_period": "2026-02", "body": "Report"}
+        mail = {"subject": "[RESULT][VOTE] Release Example 1.0.0"}
+        # Full metrics alone used to read "high"; without either cached source it is "medium".
+        self.assertEqual(confidence_for_record(make_record(metrics=full_metrics)), "medium")
+        self.assertEqual(
+            confidence_for_record(make_record(metrics=full_metrics, incubator_reports=[report])),
+            "medium",
+        )
+        self.assertEqual(
+            confidence_for_record(make_record(metrics=full_metrics, incubator_general_mail=[mail])),
+            "medium",
+        )
+        # The cap never raises a lower level.
+        self.assertEqual(
+            confidence_for_record(
+                make_record(
+                    metrics={"commits": 1, "unique_committers": 1},
+                    incubator_reports=[report],
+                    incubator_general_mail=[mail],
+                )
+            ),
+            "medium",
+        )
+        self.assertEqual(
+            confidence_for_record(
+                make_record(metrics={"commits": 1}, incubator_reports=[report], incubator_general_mail=[mail])
+            ),
+            "low",
         )
 
     def test_readiness_assessment_paths(self) -> None:
