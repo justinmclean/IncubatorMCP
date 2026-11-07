@@ -801,9 +801,10 @@ def confidence_for_record(record: OversightRecord) -> str:
     Metric coverage sets the base level from how many of the core health and
     reporting fields are populated. Source coverage then caps it: an opinion
     is never "high" while the cached Incubator reports or the cached
-    general-list mail for the podling are missing, because those are the
-    sources the release and narrative evidence come from. The missing items
-    are listed in the explainability block alongside this value.
+    general-list mail for the podling are missing, or while any source is
+    older than STALE_SOURCE_DAYS, because those are the sources the release
+    and narrative evidence come from. The missing items are listed in the
+    explainability block alongside this value.
     """
     metrics = record.preferred_metrics
     reporting_metrics = record.reporting_metrics or {}
@@ -821,6 +822,8 @@ def confidence_for_record(record: OversightRecord) -> str:
     else:
         level = "low"
     if level == "high" and not (record.incubator_reports and record.incubator_general_mail):
+        return "medium"
+    if level == "high" and source_freshness(record)["stale_sources"]:
         return "medium"
     return level
 
@@ -866,6 +869,101 @@ def _graduated_or_retired(record: OversightRecord) -> dict[str, Any] | None:
         "recommended_next_steps": [
             "Pass an as_of_date before the end date to assess the podling as it was while incubating."
         ],
+    }
+
+
+STALE_SOURCE_DAYS = 14
+
+
+def _days_between(earlier: date | None, later: date) -> int | None:
+    return None if earlier is None else (later - earlier).days
+
+
+def source_freshness(record: OversightRecord) -> dict[str, Any]:
+    """Age in days of each source the opinion leans on, and which are stale.
+
+    A source a few days old makes no difference to an Incubator opinion; one
+    older than STALE_SOURCE_DAYS can miss a release vote, a retirement
+    discussion or a change of mentors, so it is flagged. Mail fetched live in
+    this call has age 0. Mail served only from the cache is as old as its
+    newest cached copy.
+    """
+    reference = _reference_date(record)
+    health_generated = parse_iso_date(str((record.report_summary or {}).get("generated_on") or ""))
+    health_days = _days_between(health_generated, reference)
+
+    mail_days: int | None = None
+    if record.incubator_general_mail:
+        if any("cached_at" not in message for message in record.incubator_general_mail):
+            mail_days = 0
+        else:
+            cached = [
+                parse_iso_date(str(message.get("cached_at") or "")[:10]) for message in record.incubator_general_mail
+            ]
+            newest = max((value for value in cached if value is not None), default=None)
+            mail_days = _days_between(newest, reference)
+
+    stale = [
+        name
+        for name, days in (("health_report", health_days), ("general_mail", mail_days))
+        if days is not None and days > STALE_SOURCE_DAYS
+    ]
+    return {
+        "threshold_days": STALE_SOURCE_DAYS,
+        "health_report_age_days": health_days,
+        "general_mail_age_days": mail_days,
+        "stale_sources": stale,
+    }
+
+
+def _subject_key(subject: str) -> str:
+    return re.sub(r"^(re|fwd?|aw)\s*:\s*", "", subject.strip(), flags=re.IGNORECASE).casefold()
+
+
+def mail_signals(record: OversightRecord) -> dict[str, Any]:
+    """Release and governance facts read from the podling's general@incubator subjects.
+
+    Only thread subjects are read, one entry per thread. A [RESULT] on
+    general@ that mentions a release is an IPMC-approved release; a [CANCEL]
+    or "cancelled" vote is a failed attempt; a subject mentioning retirement
+    is a retirement discussion.
+    """
+    reference = _reference_date(record)
+    threads: dict[str, date | None] = {}
+    for message in record.incubator_general_mail:
+        subject = str(message.get("subject") or "")
+        if not subject:
+            continue
+        key = _subject_key(subject)
+        when = parse_iso_date(str(message.get("date") or "")[:10])
+        if key not in threads or (when is not None and (threads[key] is None or when > threads[key])):  # type: ignore[operator]
+            threads[key] = when
+
+    def within_year(value: date | None) -> bool:
+        return value is not None and 0 <= (reference - value).days <= 365
+
+    results = [
+        d for k, d in threads.items() if "[result]" in k and ("release" in k or "vote" in k) and "cancel" not in k
+    ]
+    cancels = [
+        d
+        for k, d in threads.items()
+        if ("[cancel" in k or "cancelled" in k or "canceled" in k) and ("vote" in k or "release" in k)
+    ]
+    retirement = sorted(k for k, d in threads.items() if "retir" in k and within_year(d))
+    graduation = sorted(k for k, d in threads.items() if "graduat" in k and within_year(d))
+
+    latest_result = max((d for d in results if d is not None), default=None)
+    latest_cancel = max((d for d in cancels if d is not None), default=None)
+    return {
+        "thread_count": len(threads),
+        "latest_ipmc_release_result": latest_result.isoformat() if latest_result else None,
+        "ipmc_release_result_in_12m": within_year(latest_result),
+        "latest_cancelled_vote": latest_cancel.isoformat() if latest_cancel else None,
+        "cancelled_after_last_result": latest_cancel is not None
+        and (latest_result is None or latest_cancel > latest_result),
+        "retirement_threads_12m": retirement,
+        "graduation_threads_12m": graduation,
     }
 
 
@@ -939,6 +1037,33 @@ def readiness_assessment(record: OversightRecord, strict_mode: bool = False) -> 
     )
     sustained_activity = "strong" if commits >= 25 and months >= 12 else "mixed" if commits >= 10 else "weak"
 
+    signals = mail_signals(record) if record.mail_loaded else None
+    freshness = source_freshness(record)
+    mail_notes: list[str] = []
+    if signals is not None and record.incubator_general_mail:
+        if signals["ipmc_release_result_in_12m"] and release_maturity == "weak":
+            release_maturity = "strong"
+            mail_notes.append(f"general@ shows an IPMC release vote result on {signals['latest_ipmc_release_result']}.")
+        elif not signals["ipmc_release_result_in_12m"] and release_maturity == "strong":
+            release_maturity = "mixed"
+            missing_evidence.append("No IPMC release vote result found on general@ in the last 12 months.")
+        if signals["cancelled_after_last_result"]:
+            release_maturity = {"strong": "mixed", "mixed": "weak"}.get(release_maturity, release_maturity)
+            blockers.append(
+                f"The most recent IPMC release vote on general@ was cancelled ({signals['latest_cancelled_vote']})"
+                " and no release result has followed."
+            )
+        if signals["retirement_threads_12m"]:
+            governance_health = "weak"
+            blockers.append("A retirement discussion about the podling is on general@ in the last 12 months.")
+    elif record.mail_loaded:
+        missing_evidence.append("No general@incubator mail about the podling was found to confirm release votes.")
+    for name in freshness["stale_sources"]:
+        days = freshness["health_report_age_days" if name == "health_report" else "general_mail_age_days"]
+        missing_evidence.append(
+            f"The {name.replace('_', ' ')} is {days} days old; refresh it before relying on this view."
+        )
+
     dimensions = {
         "community_independence": community_independence,
         "release_maturity": release_maturity,
@@ -979,6 +1104,25 @@ def readiness_assessment(record: OversightRecord, strict_mode: bool = False) -> 
         assessment = "not_yet_ready"
         summary = "The podling is progressing, but the evidence is not yet strong enough for graduation readiness."
 
+    if signals is not None and signals["retirement_threads_12m"] and assessment in {"ready", "near_ready"}:
+        assessment = "not_yet_ready"
+        summary = (
+            "A retirement discussion about the podling is open on general@, so it cannot be rated near graduation."
+        )
+    elif release_maturity == "weak" and assessment in {"ready", "near_ready"}:
+        assessment = "not_yet_ready"
+        summary = (
+            "Other dimensions are strong, but there is no IPMC-approved release in the last 12 months, "
+            "which graduation requires."
+        )
+    elif freshness["stale_sources"] and assessment == "ready":
+        assessment = "near_ready"
+        summary = (
+            "The metrics read as ready, but at least one source is older than "
+            f"{STALE_SOURCE_DAYS} days, so the view is held at near ready until it is refreshed."
+        )
+    summary = " ".join([summary, *mail_notes]) if mail_notes else summary
+
     next_steps = []
     if assessment in {"near_ready", "ready"}:
         next_steps.append("Review the podling with mentors to confirm whether a graduation plan is timely.")
@@ -999,6 +1143,8 @@ def readiness_assessment(record: OversightRecord, strict_mode: bool = False) -> 
         "missing_evidence": missing_evidence,
         "dimension_scores": dimensions,
         "recommended_next_steps": next_steps,
+        "mail_signals": signals,
+        "source_freshness": freshness,
     }
 
 
