@@ -456,7 +456,25 @@ vote ignoring "Apache", "release", "vote" and outcome words such as "PASSED".
 `community_independence` is lowered one step when a podling more than six
 months into incubation says in its latest report that nobody has been elected
 since it started, or names no election in the last 12 months. An answer that
-reports an election without a date is not counted against it.
+reports an election without a date is not counted against it, and neither is a
+new committer or PPMC member announced on the podling's dev@ list in the last
+12 months.
+
+For a single podling, its own dev@ list is also read live through MailMCP for
+the 12 months before `as_of_date` (or today), and returned as
+`dev_mail_signals`, with where it came from in `dev_mail_source`. Overview
+tools do not read dev@: a year of one list takes a few seconds. Only subjects,
+senders and dates are read:
+
+- a retirement discussion on dev@ is treated like one on general@: weak
+  `governance_health` and a verdict held at `not_yet_ready`;
+- no dev@ mail for more than 90 days is listed in `blockers`;
+- a PPMC release `[VOTE]` on dev@ with no result in the last 21 days is listed
+  in `missing_evidence` until the IPMC vote opens on general@;
+- an announcement of a new committer or PPMC member counts as a recent
+  election, and a graduation discussion is noted in the summary.
+
+If dev@ cannot be read, the reason is listed in `missing_evidence`.
 
 A weak `release_maturity` also holds the verdict at `not_yet_ready`, however
 strong the other dimensions are: graduation requires releases.

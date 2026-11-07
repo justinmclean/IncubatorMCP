@@ -979,3 +979,154 @@ class MailSignalSubjectTests(unittest.TestCase):
     def test_status_thread_is_reported(self) -> None:
         signals = self.signals("Discuss the status of Apache Foo")
         self.assertEqual(signals["status_threads_12m"], ["discuss the status of apache foo"])
+
+
+def with_dev_mail(
+    record: OversightRecord, *messages: tuple[str, str], sender: str = "dev@example.org"
+) -> OversightRecord:
+    record.podling_dev_mail = [
+        {"subject": subject, "date": f"{day} 09:00:00 UTC", "from": f"Someone <{sender}>"} for subject, day in messages
+    ]
+    record.dev_mail_loaded = True
+    return record
+
+
+class DevMailSignalTests(unittest.TestCase):
+    """Readiness reads the podling's own dev@ subjects when they were loaded."""
+
+    def ready(self) -> OversightRecord:
+        # Ready on every dimension as of 2026-11-07, with an election in the last year.
+        return election_record("2026-07-24")
+
+    def test_not_loaded_dev_mail_changes_nothing(self) -> None:
+        result = readiness_assessment(self.ready())
+        self.assertIsNone(result["dev_mail_signals"])
+        self.assertFalse(any("dev@" in item for item in result["missing_evidence"] + result["blockers"]))
+
+    def test_failed_dev_mail_read_is_reported_as_missing_evidence(self) -> None:
+        record = self.ready()
+        record.dev_mail_error = "dev@ search failed: timed out"
+        result = readiness_assessment(record)
+        self.assertIn(
+            "The podling's dev@ list could not be read (dev@ search failed: timed out).", result["missing_evidence"]
+        )
+
+    def test_retirement_discussion_on_dev_caps_the_verdict(self) -> None:
+        record = with_dev_mail(
+            self.ready(),
+            ("time to retire Example?", "2026-10-01"),
+            ("Re: time to retire Example?", "2026-10-03"),
+        )
+        result = readiness_assessment(record)
+        self.assertEqual(result["dev_mail_signals"]["retirement_threads_12m"], ["time to retire example?"])
+        self.assertEqual(result["dimension_scores"]["governance_health"], "weak")
+        self.assertEqual(result["assessment"], "not_yet_ready")
+        self.assertIn("open on dev@", result["summary"])
+        self.assertIn("A retirement discussion about the podling is on dev@ in the last 12 months.", result["blockers"])
+        self.assertIn(
+            "Settle the retirement discussion on dev@ before any graduation planning.",
+            result["recommended_next_steps"],
+        )
+
+    def test_quiet_dev_list_is_a_blocker(self) -> None:
+        record = with_dev_mail(self.ready(), ("Weekly sync notes", "2026-06-01"))
+        result = readiness_assessment(record)
+        signals = result["dev_mail_signals"]
+        self.assertTrue(signals["quiet"])
+        self.assertEqual(signals["days_since_last_message"], 159)
+        self.assertIn("dev@ has had no mail for more than 90 days (last on 2026-06-01).", result["blockers"])
+        self.assertTrue(any("dev@ has gone quiet" in step for step in result["recommended_next_steps"]))
+
+    def test_active_dev_list_is_not_quiet_and_counts_senders(self) -> None:
+        record = with_dev_mail(self.ready(), ("Roadmap", "2026-10-20"), ("Re: Roadmap", "2026-10-21"))
+        record.podling_dev_mail[1]["from"] = "Other <other@example.org>"
+        signals = readiness_assessment(record)["dev_mail_signals"]
+        self.assertFalse(signals["quiet"])
+        self.assertEqual(signals["message_count_12m"], 2)
+        self.assertEqual(signals["thread_count_12m"], 1)
+        self.assertEqual(signals["unique_senders_12m"], 2)
+
+    def test_mail_older_than_a_year_or_after_the_reference_date_is_ignored(self) -> None:
+        record = with_dev_mail(self.ready(), ("Old thread", "2025-10-01"), ("Future thread", "2026-12-01"))
+        signals = readiness_assessment(record)["dev_mail_signals"]
+        self.assertEqual(signals["message_count_12m"], 0)
+        self.assertTrue(signals["quiet"])
+
+    def test_open_ppmc_release_vote_on_dev_is_in_progress(self) -> None:
+        record = with_dev_mail(
+            self.ready(),
+            ("[VOTE] Release Apache Example 2.0.0 RC1", "2026-10-30"),
+            ("[VOTE] Release Apache Example 1.9.0 RC1", "2026-05-01"),
+            ("[RESULT][VOTE] Release Apache Example 1.9.0 RC1", "2026-05-05"),
+        )
+        result = readiness_assessment(record)
+        signals = result["dev_mail_signals"]
+        self.assertEqual(signals["open_release_votes"], ["[vote] release apache example 2.0.0 rc1"])
+        self.assertEqual(signals["release_vote_threads_12m"], 2)
+        self.assertEqual(signals["latest_release_vote"], "2026-10-30")
+        self.assertTrue(any("PPMC release vote is under way on dev@" in item for item in result["missing_evidence"]))
+        self.assertIn(
+            "Follow the PPMC release vote on dev@ through to an IPMC vote on general@.",
+            result["recommended_next_steps"],
+        )
+
+    def test_dev_vote_is_not_reported_when_the_general_vote_is_already_open(self) -> None:
+        record = with_dev_mail(self.ready(), ("[VOTE] Release Apache Example 2.0.0 RC1", "2026-10-20"))
+        record.incubator_general_mail = [
+            {"subject": "[RESULT][VOTE] Release Apache Example 1.0.0", "date": "2026-03-01 00:00:00 UTC"},
+            {"subject": "[VOTE] Release Apache Example 2.0.0 RC1", "date": "2026-10-28 00:00:00 UTC"},
+        ]
+        result = readiness_assessment(record)
+        self.assertFalse(any("PPMC release vote" in item for item in result["missing_evidence"]))
+        self.assertIn(
+            "Follow the open release vote on general@ through to a [RESULT].", result["recommended_next_steps"]
+        )
+
+    def test_new_member_announcement_on_dev_counts_as_a_recent_election(self) -> None:
+        record = with_dev_mail(
+            election_record("At founding"),
+            ("[ANNOUNCE] New committer: Jane Doe", "2026-09-15"),
+            ("[VOTE] New committer: John Roe", "2026-10-01"),
+        )
+        result = readiness_assessment(record)
+        self.assertEqual(result["dev_mail_signals"]["latest_new_member_announcement"], "2026-09-15")
+        self.assertEqual(result["dimension_scores"]["community_independence"], "strong")
+        self.assertIn("dev@ announces a new committer or PPMC member on 2026-09-15.", result["summary"])
+        self.assertFalse(any("latest report shows none" in item for item in result["missing_evidence"]))
+
+    def test_new_member_subject_forms(self) -> None:
+        from ipmc.analysis import NEW_MEMBER_SUBJECT_RE
+
+        for subject in (
+            "[announce] new committer: jane doe",
+            "welcome jane doe as a new ppmc member",
+            "new pmc member: jane",
+        ):
+            with self.subTest(subject=subject):
+                self.assertIsNotNone(NEW_MEMBER_SUBJECT_RE.search(subject))
+        self.assertIsNone(NEW_MEMBER_SUBJECT_RE.search("committer guide update"))
+
+    def test_report_reminders_are_not_graduation_discussions(self) -> None:
+        record = with_dev_mail(
+            self.ready(),
+            ("Podling Example Report Reminder - graduation", "2026-10-01"),
+            ("[DISCUSS] Graduate Apache Example to a TLP", "2026-10-10"),
+        )
+        result = readiness_assessment(record)
+        self.assertEqual(
+            result["dev_mail_signals"]["graduation_threads_12m"], ["[discuss] graduate apache example to a tlp"]
+        )
+        self.assertIn("dev@ has a graduation discussion", result["summary"])
+
+    def test_reply_prefixes_share_one_thread(self) -> None:
+        from ipmc.analysis import _subject_key
+
+        for subject in (
+            "Graduation?",
+            "Re: Graduation?",
+            "RE: Re: Graduation?",
+            "回复：graduation?",
+            "Fwd: 答复: Graduation?",
+        ):
+            with self.subTest(subject=subject):
+                self.assertEqual(_subject_key(subject), "graduation?")

@@ -938,6 +938,9 @@ class DataTests(unittest.TestCase):
             mock.patch.object(
                 data, "load_incubator_general_mail", return_value=({}, {"source": "mail", "available": True})
             ) as load_mail,
+            mock.patch.object(
+                data, "load_podling_dev_mail", return_value=([], {"source": "dev", "available": True})
+            ) as load_dev_mail,
         ):
             data.build_records(include_mail=True, requested_podling="bravo")
             data.build_records(include_mail=True)
@@ -949,6 +952,8 @@ class DataTests(unittest.TestCase):
         self.assertEqual(scopes[1], ["Alpha", "Bravo"])
         self.assertEqual(scopes[2], ["Alpha", "Bravo", "Old Timer"])
         self.assertEqual(scopes[3], ["Unknown Podling"])
+        # dev@ is read for the one requested podling only, never for an overview.
+        self.assertEqual([call.args[0]["name"] for call in load_dev_mail.call_args_list], ["Bravo"])
 
     def test_build_records_adds_requested_podling_from_report_cache_when_missing_from_podlings(self) -> None:
         with (
@@ -992,3 +997,77 @@ class DataTests(unittest.TestCase):
         self.assertEqual(records["records"][0].preferred_window, "3m")
         self.assertEqual(records["records"][0].reporting_window, "12m")
         self.assertEqual(records["records"][0].incubator_reports[0]["report_period"], "2012-10")
+
+    def test_podling_slug_prefers_the_podlings_xml_resource(self) -> None:
+        self.assertEqual(data.podling_slug({"name": "Apache Toree", "resource": "Toree"}), "toree")
+        self.assertEqual(data.podling_slug({"name": "Pony Mail"}), "ponymail")
+        self.assertEqual(data.podling_slug({"name": "X", "resource": "https://x.example/"}), "x")
+        self.assertIsNone(data.podling_slug({"name": ""}))
+
+    def test_load_podling_dev_mail_reads_a_year_of_the_dev_list(self) -> None:
+        module = mock.Mock()
+        module.fetch_podling_mail_stats.return_value = {
+            "list": "dev@toree.apache.org",
+            "emails": [{"subject": "time to retire Toree?", "date": "2026-10-01 09:00:00 UTC"}],
+        }
+        with mock.patch.object(data, "incubator_mail_client", module):
+            messages, meta = data.load_podling_dev_mail(
+                {"name": "Toree", "resource": "toree"},
+                mail_api_base="https://lists.example/api",
+                as_of_date="2026-11-07",
+            )
+        module.fetch_podling_mail_stats.assert_called_once_with(
+            podling="toree",
+            list_name="dev",
+            api_base="https://lists.example/api",
+            timespan="dfr=2025-11-07|dto=2026-11-07",
+        )
+        self.assertEqual(len(messages), 1)
+        self.assertTrue(meta["available"])
+        self.assertEqual(meta["list"], "dev@toree.apache.org")
+        self.assertEqual(meta["message_count"], 1)
+
+    def test_load_podling_dev_mail_reports_why_it_is_missing(self) -> None:
+        module = mock.Mock()
+        module.fetch_podling_mail_stats.side_effect = OSError("timed out")
+        with mock.patch.object(data, "incubator_mail_client", module):
+            messages, meta = data.load_podling_dev_mail({"name": "Toree"}, as_of_date="2026-11-07")
+        self.assertEqual(messages, [])
+        self.assertFalse(meta["available"])
+        self.assertEqual(meta["reason"], "dev@ search failed: timed out")
+
+        without_fetcher = mock.Mock(spec=[])
+        with mock.patch.object(data, "incubator_mail_client", without_fetcher):
+            _, meta = data.load_podling_dev_mail({"name": "Toree"})
+        self.assertIn("fetch_podling_mail_stats", meta["reason"])
+
+    def test_build_records_attaches_dev_mail_to_the_requested_podling(self) -> None:
+        podlings = [{"name": "Toree", "status": "current", "mentors": [], "startdate": "2024-01-01"}]
+        dev = [{"subject": "Roadmap", "date": "2026-10-01 09:00:00 UTC"}]
+        with (
+            mock.patch.object(data, "load_podlings", return_value=(podlings, {"source": "podlings.xml"})),
+            mock.patch.object(data, "load_health_summaries", return_value=({}, {"source": "reports"})),
+            mock.patch.object(data, "load_incubator_reports", return_value=({}, {"source": "reports"})),
+            mock.patch.object(data, "load_incubator_general_mail", return_value=({}, {"available": True})),
+            mock.patch.object(data, "load_podling_dev_mail", return_value=(dev, {"available": True})),
+        ):
+            loaded = data.build_records(include_mail=True, requested_podling="toree")
+        record = loaded["records"][0]
+        self.assertTrue(record.dev_mail_loaded)
+        self.assertEqual(record.podling_dev_mail, dev)
+        self.assertIsNone(record.dev_mail_error)
+
+        with (
+            mock.patch.object(data, "load_podlings", return_value=(podlings, {"source": "podlings.xml"})),
+            mock.patch.object(data, "load_health_summaries", return_value=({}, {"source": "reports"})),
+            mock.patch.object(data, "load_incubator_reports", return_value=({}, {"source": "reports"})),
+            mock.patch.object(data, "load_incubator_general_mail", return_value=({}, {"available": True})),
+            mock.patch.object(
+                data,
+                "load_podling_dev_mail",
+                return_value=([], {"available": False, "reason": "dev@ search failed: x"}),
+            ),
+        ):
+            failed = data.build_records(include_mail=True, requested_podling="toree")["records"][0]
+        self.assertFalse(failed.dev_mail_loaded)
+        self.assertEqual(failed.dev_mail_error, "dev@ search failed: x")

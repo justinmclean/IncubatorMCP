@@ -769,6 +769,8 @@ def tool_graduation_readiness(arguments: dict[str, Any]) -> dict[str, Any]:
         "dimension_scores": readiness["dimension_scores"],
         "recommended_next_steps": readiness["recommended_next_steps"],
         "mail_signals": readiness.get("mail_signals"),
+        "dev_mail_signals": readiness.get("dev_mail_signals"),
+        "dev_mail_source": data.get("dev_mail_source"),
         "source_freshness": readiness.get("source_freshness"),
         "explainability": _explainability(
             record,

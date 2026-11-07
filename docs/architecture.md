@@ -44,6 +44,7 @@ It:
 - loads ReportMCP podling report entries when cached reports are available
 - loads MailMCP general-list message summaries when a tool needs them; if the default cache is missing, this uses read-only live MailMCP search
 - loads MailMCP release vote/result thread history for the `release_vote_evidence` tool only
+- loads the requested podling's own dev@ list live through MailMCP for single-podling mail views (`graduation_readiness`, `podling_brief`), one request for the year before the reference date; overview tools never read dev@
 - loads ReleaseMCP artifact/cadence evidence, optional opt-in release download page checks, and optional GitHub/Docker Hub/PyPI/Maven distribution hints, for the `release_artifact_evidence` tool only
 - refreshes ReportMCP and MailMCP caches through explicit cache tools
 - joins source data into `OversightRecord` objects

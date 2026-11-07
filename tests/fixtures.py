@@ -153,6 +153,10 @@ class _OfflineMailClient:
         return {"hits": 0, "emails": []}
 
     @staticmethod
+    def fetch_podling_mail_stats(**_: object) -> dict[str, object]:
+        return {"hits": 0, "emails": []}
+
+    @staticmethod
     def cache_key(message_id: str) -> str:
         return message_id
 
