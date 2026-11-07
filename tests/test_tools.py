@@ -466,7 +466,7 @@ class ToolTests(unittest.TestCase):
 
         self.assertNotIn("evidence", payload)
 
-    def test_graduation_readiness_skips_general_mail_loading(self) -> None:
+    def test_graduation_readiness_loads_general_mail(self) -> None:
         record = OversightRecord(
             podling={"name": "Delta", "status": "current", "mentors": ["A", "B"], "startdate": "2024-01-01"},
             report_summary={"latest_metrics": {"3m": {}, "12m": {}}},
@@ -493,7 +493,7 @@ class ToolTests(unittest.TestCase):
             mail_source=None,
             mail_api_base=None,
             as_of_date="2026-04-18",
-            include_mail=False,
+            include_mail=True,
             requested_podling="Delta",
         )
 
@@ -1183,7 +1183,7 @@ class ToolTests(unittest.TestCase):
             mail_source=None,
             podlings=[record.podling],
             mail_api_base="https://example.test/api",
-            allow_live_fallback=False,
+            live=False,
         )
         load_history.assert_called_once_with(
             "Shipping",

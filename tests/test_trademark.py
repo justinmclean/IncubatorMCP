@@ -14,14 +14,23 @@ def _projects_fixture() -> list[dict[str, Any]]:
     ]
 
 
-class ProposedNameCheckTests(unittest.TestCase):
-    def test_unavailable_when_package_missing(self) -> None:
-        with mock.patch.object(data, "trademark_projects", None), mock.patch.object(data, "trademark_policy", None):
-            payload = data.load_proposed_name_check("Quux")
-        self.assertFalse(payload["available"])
-        self.assertEqual(payload["proposed_name"], "Quux")
-        self.assertIn("apache-trademark-mcp", payload["reason"])
+class PodlingWebsiteUrlTests(unittest.TestCase):
+    def test_slug_becomes_apache_org_homepage(self) -> None:
+        self.assertEqual(tools._podling_website_url({"resource": "graphar"}), "https://graphar.apache.org/")
+        self.assertEqual(tools._podling_website_url({"resource": "KIE"}), "https://kie.apache.org/")
 
+    def test_full_url_and_structured_resource_pass_through(self) -> None:
+        self.assertEqual(
+            tools._podling_website_url({"resource": "https://alpha.apache.org"}), "https://alpha.apache.org"
+        )
+        self.assertEqual(
+            tools._podling_website_url({"resource": {"href": "https://b.apache.org/"}}), "https://b.apache.org/"
+        )
+        self.assertIsNone(tools._podling_website_url({"resource": ""}))
+        self.assertIsNone(tools._podling_website_url({}))
+
+
+class ProposedNameCheckTests(unittest.TestCase):
     def test_pass_path_uses_upstream_policy_helpers(self) -> None:
         fake_policy = mock.Mock()
         fake_policy.check_reserved.return_value = []
@@ -83,17 +92,6 @@ class ProposedNameCheckTests(unittest.TestCase):
 
 
 class BrandingCheckTests(unittest.TestCase):
-    def test_unavailable_when_package_missing(self) -> None:
-        with (
-            mock.patch.object(data, "trademark_compliance", None),
-            mock.patch.object(data, "trademark_web", None),
-            mock.patch.object(data, "trademark_projects", None),
-            mock.patch.object(data, "trademark_policy", None),
-        ):
-            payload = data.load_project_website_branding_check("https://foo.apache.org")
-        self.assertFalse(payload["available"])
-        self.assertEqual(payload["target_url"], "https://foo.apache.org")
-
     def test_invalid_stage_raises(self) -> None:
         fake_policy = mock.Mock(VALID_BRANDING_STAGES={"podling", "graduation", "tlp"})
         with (

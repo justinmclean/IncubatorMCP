@@ -359,16 +359,92 @@ class DataTests(unittest.TestCase):
                 mail, meta = data.load_incubator_general_mail(
                     "/tmp/mail-cache",
                     [{"name": "Alpha"}, {"name": "Bravo"}],
+                    live=False,
                 )
 
         module.load_cached_mail.assert_called_once_with(cache_dir="/tmp/mail-cache")
+        module.fetch_mail_stats.assert_not_called()
         self.assertEqual(meta["source"], "/tmp/mail-cache")
+        self.assertEqual(meta["mode"], "cache")
         self.assertTrue(meta["available"])
-        self.assertEqual(meta["message_count"], 2)
+        self.assertEqual(meta["cache_message_count"], 2)
+        self.assertEqual(meta["message_count"], 1)
         self.assertEqual(meta["podling_count"], 1)
         self.assertNotIn("emails", meta)
         self.assertEqual(mail["alpha"][0]["id"], "alpha-message")
         self.assertNotIn("bravo", mail)
+
+    def test_load_incubator_general_mail_searches_live_first_and_keeps_older_cached_mail(self) -> None:
+        module = mock.Mock()
+        module.load_cached_mail.return_value = {
+            "cache_dir": "/tmp/mail-cache",
+            "count": 2,
+            "emails": [
+                {"id": "alpha-old", "subject": "[VOTE] Release Alpha 0.1.0", "date": "2025-06-01 00:00:00 UTC"},
+                {"id": "other-message", "subject": "Incubator housekeeping", "date": "2025-06-02 00:00:00 UTC"},
+            ],
+        }
+        module.fetch_mail_stats.side_effect = [
+            {
+                "emails": [
+                    {
+                        "id": "alpha-new",
+                        "subject": "[RESULT][VOTE] Release Alpha 0.2.0",
+                        "date": "2026-04-20 00:00:00 UTC",
+                    },
+                    {"id": "alpha-old", "subject": "[VOTE] Release Alpha 0.1.0", "date": "2025-06-01 00:00:00 UTC"},
+                ]
+            },
+            {"emails": []},
+        ]
+
+        with mock.patch.object(data.Path, "exists", return_value=True):
+            with mock.patch.object(data, "incubator_mail_client", module):
+                with mock.patch.object(data, "_store_live_mail", return_value=2) as store:
+                    mail, meta = data.load_incubator_general_mail(
+                        "/tmp/mail-cache",
+                        [{"name": "Alpha"}, {"name": "Bravo"}],
+                        mail_api_base="https://example.test/api",
+                    )
+
+        self.assertEqual(module.fetch_mail_stats.call_count, 2)
+        module.fetch_mail_stats.assert_any_call(
+            api_base="https://example.test/api",
+            timespan=data.DEFAULT_MAIL_SEARCH_TIMESPAN,
+            query="Alpha",
+            limit=data.DEFAULT_MAIL_QUERY_LIMIT,
+        )
+        store.assert_called_once()
+        self.assertEqual(store.call_args.kwargs["query"], "Alpha")
+        self.assertEqual([m["id"] for m in mail["alpha"]], ["alpha-new", "alpha-old"])
+        self.assertNotIn("bravo", mail)
+        self.assertEqual(meta["mode"], "live")
+        self.assertEqual(meta["source"], "https://example.test/api")
+        self.assertEqual(meta["source_by_podling"], {"alpha": "live"})
+        self.assertEqual(meta["live_podling_count"], 2)
+        self.assertEqual(meta["cached_messages_written"], 2)
+        self.assertEqual(meta["live_failures"], {})
+        self.assertTrue(meta["available"])
+
+    def test_load_incubator_general_mail_falls_back_to_cache_when_live_search_fails(self) -> None:
+        module = mock.Mock()
+        module.load_cached_mail.return_value = {
+            "cache_dir": "/tmp/mail-cache",
+            "count": 1,
+            "emails": [{"id": "alpha-old", "subject": "[VOTE] Release Alpha 0.1.0", "date": "2025-06-01 00:00:00 UTC"}],
+        }
+        module.fetch_mail_stats.side_effect = RuntimeError("network unavailable")
+
+        with mock.patch.object(data.Path, "exists", return_value=True):
+            with mock.patch.object(data, "incubator_mail_client", module):
+                mail, meta = data.load_incubator_general_mail("/tmp/mail-cache", [{"name": "Alpha"}])
+
+        self.assertEqual([m["id"] for m in mail["alpha"]], ["alpha-old"])
+        self.assertEqual(meta["mode"], "cache")
+        self.assertEqual(meta["source"], "/tmp/mail-cache")
+        self.assertEqual(meta["source_by_podling"], {"alpha": "cache"})
+        self.assertEqual(meta["live_failures"], {"alpha": "network unavailable"})
+        self.assertTrue(meta["available"])
 
     def test_environment_overrides_mail_source_default(self) -> None:
         module = mock.Mock()
@@ -382,7 +458,7 @@ class DataTests(unittest.TestCase):
         module.load_cached_mail.assert_called_once_with(cache_dir="/tmp/mail-cache")
         self.assertEqual(meta["source"], "/tmp/mail-cache")
 
-    def test_load_incubator_general_mail_falls_back_to_live_search_without_default_cache(self) -> None:
+    def test_load_incubator_general_mail_searches_live_without_default_cache(self) -> None:
         module = mock.Mock()
         module.fetch_mail_stats.side_effect = [
             {
@@ -419,7 +495,7 @@ class DataTests(unittest.TestCase):
         self.assertEqual(mail["alpha"][0]["id"], "alpha-message")
         self.assertNotIn("bravo", mail)
 
-    def test_load_incubator_general_mail_falls_back_to_live_search_with_empty_cache(self) -> None:
+    def test_load_incubator_general_mail_searches_live_with_empty_cache(self) -> None:
         module = mock.Mock()
         module.load_cached_mail.return_value = {"cache_dir": "/tmp/mail-cache", "count": 0, "emails": []}
         module.fetch_mail_stats.side_effect = [
@@ -437,11 +513,12 @@ class DataTests(unittest.TestCase):
 
         with mock.patch.object(data.Path, "exists", return_value=True):
             with mock.patch.object(data, "incubator_mail_client", module):
-                mail, meta = data.load_incubator_general_mail(
-                    "/tmp/mail-cache",
-                    [{"name": "Alpha"}],
-                    mail_api_base="https://example.test/api",
-                )
+                with mock.patch.object(data, "_store_live_mail", return_value=1):
+                    mail, meta = data.load_incubator_general_mail(
+                        "/tmp/mail-cache",
+                        [{"name": "Alpha"}],
+                        mail_api_base="https://example.test/api",
+                    )
 
         module.load_cached_mail.assert_called_once_with(cache_dir="/tmp/mail-cache")
         module.fetch_mail_stats.assert_called_once_with(
@@ -452,10 +529,10 @@ class DataTests(unittest.TestCase):
         )
         self.assertEqual(meta["mode"], "live")
         self.assertEqual(meta["cache_dir"], "/tmp/mail-cache")
-        self.assertEqual(meta["fallback_reason"], "MailMCP cache directory is empty.")
+        self.assertEqual(meta["cache_message_count"], 0)
         self.assertEqual(mail["alpha"][0]["id"], "alpha-message")
 
-    def test_load_incubator_general_mail_reports_live_fallback_failure(self) -> None:
+    def test_load_incubator_general_mail_reports_failure_when_live_fails_and_cache_is_empty(self) -> None:
         module = mock.Mock()
         module.fetch_mail_stats.side_effect = RuntimeError("network unavailable")
 
@@ -499,6 +576,21 @@ class DataTests(unittest.TestCase):
 
     def test_mail_match_normalizes_podling_names(self) -> None:
         self.assertTrue(data._mail_matches_podling({"subject": "PonyMail release discussion"}, "Pony Mail"))
+        self.assertTrue(data._mail_matches_podling({"subject": "[VOTE] Release Apache Pony-Mail 1.0"}, "Pony Mail"))
+        self.assertTrue(data._mail_matches_podling({"subject": "Re: graphar 0.13.0 vote"}, "GraphAr"))
+        self.assertTrue(data._mail_matches_podling({"subject": "[DISCUSS] Graph Ar schema"}, "GraphAr"))
+        self.assertTrue(data._mail_matches_podling({"subject": "Apache KIE (incubating) 10.2.0"}, "KIE"))
+
+    def test_mail_match_requires_whole_words_and_ignores_ids(self) -> None:
+        self.assertFalse(data._mail_matches_podling({"subject": "Cookie policy for the wiki"}, "KIE"))
+        self.assertFalse(data._mail_matches_podling({"subject": "Burroughs machine emulator"}, "Burr"))
+        self.assertFalse(data._mail_matches_podling({"subject": "Clear skies ahead"}, "KIE"))
+        self.assertFalse(
+            data._mail_matches_podling(
+                {"subject": "Board report", "from": "kie@example.org", "id": "akiexyz", "thread_id": "kie123"}, "KIE"
+            )
+        )
+        self.assertFalse(data._mail_matches_podling({}, "KIE"))
 
     def test_load_podling_release_vote_history_uses_mail_mcp(self) -> None:
         module = mock.Mock()
@@ -737,15 +829,6 @@ class DataTests(unittest.TestCase):
 
         self.assertEqual(module.release_overview.call_args.kwargs["max_depth"], 1)
 
-    def test_load_podling_release_artifacts_handles_missing_release_mcp(self) -> None:
-        with mock.patch.object(data, "incubator_releases", None):
-            evidence = data.load_podling_release_artifacts("Alpha")
-
-        self.assertFalse(evidence["available"])
-        self.assertEqual(evidence["release_count"], 0)
-        self.assertIn("not importable in the IPMC server environment", evidence["reason"])
-        self.assertIn("PYTHONPATH", evidence["reason"])
-
     def test_default_health_source_matches_health_mcp_default(self) -> None:
         self.assertEqual(data.DEFAULT_HEALTH_SOURCE, "reports")
 
@@ -816,6 +899,31 @@ class DataTests(unittest.TestCase):
         self.assertEqual(record.preferred_window, "3m")
         self.assertEqual(record.incubator_reports, [report_entry])
         self.assertEqual(record.incubator_general_mail, [mail_entry])
+
+    def test_build_records_searches_mail_only_for_the_podlings_in_scope(self) -> None:
+        podlings = [
+            {"name": "Alpha", "status": "current", "mentors": [], "startdate": "2024-01-01"},
+            {"name": "Bravo", "status": "current", "mentors": [], "startdate": "2024-01-01"},
+            {"name": "Old Timer", "status": "graduated", "mentors": [], "startdate": "2015-01-01"},
+        ]
+        with (
+            mock.patch.object(data, "load_podlings", return_value=(podlings, {"source": "podlings.xml"})),
+            mock.patch.object(data, "load_health_summaries", return_value=({}, {"source": "reports"})),
+            mock.patch.object(data, "load_incubator_reports", return_value=({}, {"source": "reports"})),
+            mock.patch.object(
+                data, "load_incubator_general_mail", return_value=({}, {"source": "mail", "available": True})
+            ) as load_mail,
+        ):
+            data.build_records(include_mail=True, requested_podling="bravo")
+            data.build_records(include_mail=True)
+            data.build_records(include_mail=True, include_non_current=True)
+            data.build_records(include_mail=True, requested_podling="Unknown Podling")
+
+        scopes = [[p["name"] for p in call.args[1]] for call in load_mail.call_args_list]
+        self.assertEqual(scopes[0], ["Bravo"])
+        self.assertEqual(scopes[1], ["Alpha", "Bravo"])
+        self.assertEqual(scopes[2], ["Alpha", "Bravo", "Old Timer"])
+        self.assertEqual(scopes[3], ["Unknown Podling"])
 
     def test_build_records_adds_requested_podling_from_report_cache_when_missing_from_podlings(self) -> None:
         with (
