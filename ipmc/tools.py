@@ -768,8 +768,8 @@ def tool_graduation_readiness(arguments: dict[str, Any]) -> dict[str, Any]:
         "missing_evidence": readiness["missing_evidence"],
         "dimension_scores": readiness["dimension_scores"],
         "recommended_next_steps": readiness["recommended_next_steps"],
-        "mail_signals": readiness["mail_signals"],
-        "source_freshness": readiness["source_freshness"],
+        "mail_signals": readiness.get("mail_signals"),
+        "source_freshness": readiness.get("source_freshness"),
         "explainability": _explainability(
             record,
             [

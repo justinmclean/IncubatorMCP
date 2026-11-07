@@ -903,3 +903,79 @@ class ReadinessStatusAndReleaseAgeTests(unittest.TestCase):
         record = strong_record(generated_on="2026-09-06", last_release="2026-08-25")
 
         self.assertEqual(readiness_assessment(record)["dimension_scores"]["release_maturity"], "strong")
+
+
+def election_record(answer: str) -> OversightRecord:
+    record = strong_record(generated_on="2026-11-01", last_release="2026-08-25")
+    record.incubator_reports = [
+        {
+            "report_id": "board-minutes-2026-08-19",
+            "report_period": "2026-08",
+            "last_release": "2026-08-25",
+            "body": "### When were the last committers or PPMC members elected?\n\n"
+            f"{answer}\n\n### Have your mentors been helpful and responsive?\n\nYes.\n",
+        }
+    ]
+    return record
+
+
+class CommunityElectionTests(unittest.TestCase):
+    def test_no_election_since_start_lowers_community_independence(self) -> None:
+        for answer in ("At founding", "N/A", "2024-01-01, when the podling was accepted"):
+            with self.subTest(answer=answer):
+                result = readiness_assessment(election_record(answer))
+                self.assertEqual(result["dimension_scores"]["community_independence"], "mixed")
+
+    def test_recent_election_keeps_community_independence(self) -> None:
+        for answer in ("2026-07-24", "March 24, 2026 - three new committers", "Rose Duan, 19th Jan 2026"):
+            with self.subTest(answer=answer):
+                result = readiness_assessment(election_record(answer))
+                self.assertEqual(result["dimension_scores"]["community_independence"], "strong")
+
+    def test_old_election_lowers_community_independence(self) -> None:
+        result = readiness_assessment(election_record("2025-02-01"))
+        self.assertEqual(result["dimension_scores"]["community_independence"], "mixed")
+
+    def test_undated_election_is_not_counted_as_none(self) -> None:
+        answer = "None so far. The vote to add Foo as a committer and PPMC member has passed."
+        result = readiness_assessment(election_record(answer))
+        self.assertEqual(result["dimension_scores"]["community_independence"], "strong")
+
+
+class MailSignalSubjectTests(unittest.TestCase):
+    def signals(self, *subjects: str) -> dict:
+        from ipmc.analysis import mail_signals
+
+        record = make_record(
+            metrics=STRONG_METRICS,
+            as_of_date="2026-11-07",
+            incubator_general_mail=[
+                {"subject": subject, "date": f"2026-10-{index + 1:02d} 00:00:00 UTC"}
+                for index, subject in enumerate(subjects)
+            ],
+        )
+        return mail_signals(record)
+
+    def test_acceptance_vote_result_is_not_a_release(self) -> None:
+        signals = self.signals("[RESULT][VOTE] Accept Foo into the Apache Incubator")
+        self.assertIsNone(signals["latest_ipmc_release_result"])
+
+    def test_cancel_without_vote_in_subject_is_found(self) -> None:
+        signals = self.signals(
+            "[VOTE] Release Apache Foo (Incubating) 2.1.0-incubating RC2",
+            "[CANCEL] Apache Foo (Incubating) 2.1.0-incubating RC2",
+        )
+        self.assertIsNotNone(signals["latest_cancelled_vote"])
+        self.assertEqual(signals["open_release_votes"], [])
+
+    def test_result_with_outcome_word_closes_its_vote(self) -> None:
+        signals = self.signals(
+            "[VOTE] Release Foo (Incubating) 0.7.4",
+            "[RESULT] [VOTE] Release Apache Foo (Incubating) 0.7.4 PASSED",
+        )
+        self.assertEqual(signals["open_release_votes"], [])
+        self.assertIsNotNone(signals["latest_ipmc_release_result"])
+
+    def test_status_thread_is_reported(self) -> None:
+        signals = self.signals("Discuss the status of Apache Foo")
+        self.assertEqual(signals["status_threads_12m"], ["discuss the status of apache foo"])
