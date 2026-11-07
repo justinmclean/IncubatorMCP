@@ -672,3 +672,60 @@ class ReconcileTrajectoryAndReadinessTests(unittest.TestCase):
     def test_unknown_trend_returns_no_note(self) -> None:
         self.assertIsNone(reconcile_trajectory_and_readiness("unknown", "ready"))
         self.assertIsNone(reconcile_trajectory_and_readiness("stable", "at_risk"))
+
+
+STRONG_METRICS = {
+    "commits": 40,
+    "unique_committers": 6,
+    "unique_authors": 8,
+    "releases": 1,
+    "reports_count": 3,
+    "avg_mentor_signoffs": 2.5,
+}
+
+
+def strong_record(*, generated_on: str, last_release: str | None, as_of_date: str = "2026-11-07") -> OversightRecord:
+    record = make_record(metrics=STRONG_METRICS, twelve_month_metrics=STRONG_METRICS, as_of_date=as_of_date)
+    assert record.report_summary is not None
+    record.report_summary["generated_on"] = generated_on
+    if last_release is not None:
+        record.incubator_reports = [{"report_period": "2026-08", "last_release": last_release}]
+    return record
+
+
+class ReadinessStatusAndReleaseAgeTests(unittest.TestCase):
+    def test_graduated_podling_is_not_applicable(self) -> None:
+        record = strong_record(generated_on="2026-11-01", last_release="2026-08-01")
+        record.podling.update({"status": "graduated", "enddate": "2026-09-16"})
+
+        result = readiness_assessment(record)
+
+        self.assertEqual(result["assessment"], "not_applicable")
+        self.assertIn("2026-09-16", result["summary"])
+
+    def test_graduated_podling_is_scored_as_of_a_date_before_it_ended(self) -> None:
+        record = strong_record(generated_on="2026-06-01", last_release="2026-03-02", as_of_date="2026-06-01")
+        record.podling.update({"status": "graduated", "enddate": "2026-07-16"})
+
+        self.assertEqual(readiness_assessment(record)["assessment"], "ready")
+
+    def test_stale_health_window_does_not_credit_an_old_stated_release(self) -> None:
+        # Health data from 2026-09-06 counts a 2025-09-11 release in its 12m
+        # window, but by 2026-11-07 that release is more than a year old.
+        record = strong_record(generated_on="2026-09-06", last_release="2025-09-11, released 0.8.1")
+
+        result = readiness_assessment(record)
+
+        self.assertEqual(result["dimension_scores"]["release_maturity"], "weak")
+        self.assertNotEqual(result["assessment"], "ready")
+        self.assertTrue(any("62 days old" in item for item in result["missing_evidence"]))
+
+    def test_fresh_health_window_credits_a_release_newer_than_the_report(self) -> None:
+        record = strong_record(generated_on="2026-11-01", last_release="2025-09-11")
+
+        self.assertEqual(readiness_assessment(record)["dimension_scores"]["release_maturity"], "strong")
+
+    def test_recent_stated_release_is_strong_even_with_stale_health_data(self) -> None:
+        record = strong_record(generated_on="2026-09-06", last_release="2026-08-25")
+
+        self.assertEqual(readiness_assessment(record)["dimension_scores"]["release_maturity"], "strong")

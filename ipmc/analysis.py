@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import date
 from difflib import SequenceMatcher
 from typing import Any
 
-from .data import OversightRecord
+from .data import OversightRecord, parse_iso_date
 
 SEVERITY_ORDER = {"low": 0, "medium": 1, "high": 2, "critical": 3}
 RELEASE_STALL_MIN_MONTHS = 6
@@ -30,6 +31,9 @@ REPORT_ISSUE_NORMALIZE_RE = re.compile(r"[^a-z0-9]+")
 REPORT_BODY_WHITESPACE_RE = re.compile(r"\s+")
 REPORT_COPY_FORWARD_MIN_CHARS = 300
 REPORT_COPY_FORWARD_SIMILARITY = 0.75
+RECENT_RELEASE_MAX_DAYS = 365
+HEALTH_DATA_MAX_AGE_DAYS = 31
+ISO_DATE_RE = re.compile(r"\b(\d{4}-\d{2}-\d{2})\b")
 
 
 def severity_value(value: str) -> int:
@@ -808,7 +812,55 @@ def confidence_for_record(record: OversightRecord) -> str:
     return "low"
 
 
+def _reference_date(record: OversightRecord) -> date:
+    return parse_iso_date(record.as_of_date) or date.today()
+
+
+def last_release_date(record: OversightRecord) -> date | None:
+    """Latest release date the podling has stated in its Incubator reports."""
+    reference = _reference_date(record)
+    found: list[date] = []
+    for entry in record.incubator_reports:
+        for text in ISO_DATE_RE.findall(str(entry.get("last_release") or "")):
+            parsed = parse_iso_date(text)
+            if parsed is not None and parsed <= reference:
+                found.append(parsed)
+    return max(found, default=None)
+
+
+def health_data_age_days(record: OversightRecord) -> int | None:
+    generated = parse_iso_date(str((record.report_summary or {}).get("generated_on") or ""))
+    if generated is None:
+        return None
+    return (_reference_date(record) - generated).days
+
+
+def _graduated_or_retired(record: OversightRecord) -> dict[str, Any] | None:
+    """Readiness only applies to podlings still incubating on the reference date."""
+    if record.status == "current":
+        return None
+    end_date = parse_iso_date(str(record.podling.get("enddate") or ""))
+    if end_date is not None and _reference_date(record) < end_date:
+        return None
+    ended = f" on {end_date.isoformat()}" if end_date else ""
+    return {
+        "assessment": "not_applicable",
+        "summary": f"{record.name} is {record.status}{ended}, so graduation readiness does not apply.",
+        "strengths": [],
+        "blockers": [],
+        "missing_evidence": [],
+        "dimension_scores": {},
+        "recommended_next_steps": [
+            "Pass an as_of_date before the end date to assess the podling as it was while incubating."
+        ],
+    }
+
+
 def readiness_assessment(record: OversightRecord, strict_mode: bool = False) -> dict[str, Any]:
+    not_applicable = _graduated_or_retired(record)
+    if not_applicable is not None:
+        return not_applicable
+
     metrics = record.preferred_metrics
     reporting_metrics = record.reporting_metrics or {}
     strengths: list[str] = []
@@ -849,6 +901,22 @@ def readiness_assessment(record: OversightRecord, strict_mode: bool = False) -> 
     releases_12m = release_stall_releases(record)
     if isinstance(releases_12m, int | float):
         releases = releases_12m
+    # The health 12m window is measured from when the health report was
+    # generated, so stale health data can credit a release that is now more
+    # than a year old. The podling's own last release date overrides it.
+    health_age = health_data_age_days(record)
+    health_is_fresh = health_age is not None and 0 <= health_age <= HEALTH_DATA_MAX_AGE_DAYS
+    stated_release = last_release_date(record)
+    if stated_release is not None:
+        stated_is_recent = (_reference_date(record) - stated_release).days <= RECENT_RELEASE_MAX_DAYS
+        if not stated_is_recent and not (releases >= 1 and health_is_fresh):
+            releases = 0
+    if health_age is not None and health_age < 0:
+        missing_evidence.append(
+            "Health data as of the requested date (current data is newer, so may include later activity)."
+        )
+    elif health_age is not None and not health_is_fresh:
+        missing_evidence.append(f"Health data from the last month (current data is {health_age} days old).")
     release_maturity = "strong" if releases >= 1 else "weak"
     governance_health = (
         "strong" if reports_count >= 1 and record.mentor_count >= 2 else "mixed" if reports_count >= 1 else "weak"
