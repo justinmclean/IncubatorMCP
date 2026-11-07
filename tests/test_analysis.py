@@ -526,6 +526,98 @@ class AnalysisTests(unittest.TestCase):
         )
         self.assertEqual(not_yet_ready["assessment"], "not_yet_ready")
 
+    def _ready_metrics(self) -> dict:
+        return {
+            "commits": 60,
+            "unique_committers": 6,
+            "unique_authors": 8,
+            "releases": 2,
+            "reports_count": 1,
+            "avg_mentor_signoffs": 2.0,
+            "dev_unique_posters": 9,
+        }
+
+    def test_readiness_uses_ipmc_release_result_from_mail(self) -> None:
+        metrics = self._ready_metrics() | {"releases": 0}
+        mail = [{"subject": "[RESULT][VOTE] Release Apache Example 1.2.0", "date": "2026-02-01 10:00:00 UTC"}]
+        result = readiness_assessment(
+            make_record(metrics=metrics, twelve_month_metrics=metrics, incubator_general_mail=mail)
+        )
+        self.assertEqual(result["dimension_scores"]["release_maturity"], "strong")
+        self.assertEqual(result["mail_signals"]["latest_ipmc_release_result"], "2026-02-01")
+        self.assertIn("2026-02-01", result["summary"])
+
+    def test_readiness_downgrades_release_maturity_without_result_or_after_cancel(self) -> None:
+        metrics = self._ready_metrics()
+        no_result = readiness_assessment(
+            make_record(
+                metrics=metrics,
+                twelve_month_metrics=metrics,
+                incubator_general_mail=[{"subject": "[DISCUSS] Example roadmap", "date": "2026-03-01 00:00:00 UTC"}],
+            )
+        )
+        self.assertEqual(no_result["dimension_scores"]["release_maturity"], "mixed")
+        self.assertIn(
+            "No IPMC release vote result found on general@ in the last 12 months.", no_result["missing_evidence"]
+        )
+
+        cancelled = readiness_assessment(
+            make_record(
+                metrics=metrics,
+                twelve_month_metrics=metrics,
+                incubator_general_mail=[
+                    {"subject": "[RESULT][VOTE] Release Apache Example 1.0.0", "date": "2025-11-01 00:00:00 UTC"},
+                    {"subject": "[CANCEL][VOTE] Release Apache Example 1.1.0 RC2", "date": "2026-03-10 00:00:00 UTC"},
+                    {
+                        "subject": "Re: [CANCEL][VOTE] Release Apache Example 1.1.0 RC2",
+                        "date": "2026-03-11 00:00:00 UTC",
+                    },
+                ],
+            )
+        )
+        self.assertTrue(cancelled["mail_signals"]["cancelled_after_last_result"])
+        self.assertEqual(cancelled["mail_signals"]["thread_count"], 2)
+        self.assertEqual(cancelled["dimension_scores"]["release_maturity"], "mixed")
+        self.assertTrue(any("cancelled" in blocker for blocker in cancelled["blockers"]))
+
+    def test_readiness_retirement_thread_caps_the_verdict(self) -> None:
+        metrics = self._ready_metrics()
+        mail = [
+            {"subject": "[RESULT][VOTE] Release Apache Example 1.0.0", "date": "2026-01-10 00:00:00 UTC"},
+            {"subject": "[DISCUSS] Retiring Apache Example?", "date": "2026-03-20 00:00:00 UTC"},
+        ]
+        result = readiness_assessment(
+            make_record(metrics=metrics, twelve_month_metrics=metrics, incubator_general_mail=mail)
+        )
+        self.assertEqual(result["dimension_scores"]["governance_health"], "weak")
+        self.assertEqual(result["assessment"], "not_yet_ready")
+        self.assertEqual(result["mail_signals"]["retirement_threads_12m"], ["[discuss] retiring apache example?"])
+
+    def test_stale_sources_are_flagged_and_hold_ready_at_near_ready(self) -> None:
+        metrics = self._ready_metrics()
+        mail = [{"subject": "[RESULT][VOTE] Release Apache Example 1.0.0", "date": "2026-03-01 00:00:00 UTC"}]
+        fresh = make_record(metrics=metrics, twelve_month_metrics=metrics, incubator_general_mail=mail)
+        fresh.report_summary["generated_on"] = "2026-04-10"  # type: ignore[index]
+        fresh_result = readiness_assessment(fresh)
+        self.assertEqual(fresh_result["source_freshness"]["health_report_age_days"], 8)
+        self.assertEqual(fresh_result["source_freshness"]["general_mail_age_days"], 0)
+        self.assertEqual(fresh_result["source_freshness"]["stale_sources"], [])
+        self.assertEqual(fresh_result["assessment"], "ready")
+
+        stale = make_record(
+            metrics=metrics,
+            twelve_month_metrics=metrics,
+            incubator_reports=[{"report_period": "2026-02"}],
+            incubator_general_mail=[mail[0] | {"cached_at": "2026-03-02T00:00:00Z"}],
+        )
+        stale.report_summary["generated_on"] = "2026-02-01"  # type: ignore[index]
+        stale_result = readiness_assessment(stale)
+        self.assertEqual(stale_result["source_freshness"]["stale_sources"], ["health_report", "general_mail"])
+        self.assertEqual(stale_result["source_freshness"]["general_mail_age_days"], 47)
+        self.assertEqual(stale_result["assessment"], "near_ready")
+        self.assertTrue(any("76 days old" in item for item in stale_result["missing_evidence"]))
+        self.assertEqual(confidence_for_record(stale), "medium")
+
     def test_readiness_assessment_requires_release_in_12m_window(self) -> None:
         active = {
             "commits": 300,
@@ -537,7 +629,8 @@ class AnalysisTests(unittest.TestCase):
         }
         no_release = readiness_assessment(make_record(metrics=active, twelve_month_metrics=active))
         self.assertEqual(no_release["dimension_scores"]["release_maturity"], "weak")
-        self.assertNotEqual(no_release["assessment"], "ready")
+        self.assertEqual(no_release["assessment"], "not_yet_ready")
+        self.assertIn("no IPMC-approved release", no_release["summary"])
 
         released_earlier_in_year = readiness_assessment(
             make_record(metrics=active, twelve_month_metrics={**active, "releases": 1})
