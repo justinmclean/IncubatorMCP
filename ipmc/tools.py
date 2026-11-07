@@ -24,6 +24,7 @@ from .analysis import (
 from .data import (
     DEFAULT_TRADEMARK_BRANDING_STAGE,
     DEFAULT_TRADEMARK_NAME_SIMILARITY,
+    RELEASE_MAX_DEPTH,
     _podling_key,
     build_records,
     configure_defaults,
@@ -158,12 +159,12 @@ def optional_number(arguments: dict[str, Any], key: str, default: float | None =
     return float(value)
 
 
-def optional_depth(arguments: dict[str, Any], key: str, default: int = 1) -> int:
+def optional_depth(arguments: dict[str, Any], key: str, default: int = RELEASE_MAX_DEPTH) -> int:
     value = optional_integer(arguments, key)
     if value is None:
         return default
-    if value < 0 or value > 1:
-        raise ValueError(f"'{key}' must be 0 or 1")
+    if value < 0 or value > RELEASE_MAX_DEPTH:
+        raise ValueError(f"'{key}' must be between 0 and {RELEASE_MAX_DEPTH}")
     return value
 
 
@@ -1312,6 +1313,9 @@ def tool_release_artifact_evidence(arguments: dict[str, Any]) -> dict[str, Any]:
             "available": evidence.get("available"),
             "reason": evidence.get("reason"),
             "sources": evidence.get("sources"),
+            # Per-source listing status; an "error" here means a directory could
+            # not be read and the release list may be incomplete.
+            "source_statuses": evidence.get("source_statuses", []),
         },
         "observed": {
             "release_count": release_count,

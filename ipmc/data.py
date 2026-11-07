@@ -38,6 +38,9 @@ DEV_MAIL_LOOKBACK_DAYS = 365
 DEFAULT_RELEASE_DIST_BASE = "https://dist.apache.org/repos/dist/release/incubator"
 DEFAULT_RELEASE_ARCHIVE_BASE = "https://archive.apache.org/dist/incubator"
 RELEASE_PAGE_LINK_LIMIT = 50
+# ReleaseMCP traversal depth below the podling directory. Two levels reach
+# <version>/<subproject>/<file> trees such as Toree's; one level missed them.
+RELEASE_MAX_DEPTH = 2
 DEFAULT_TRADEMARK_BRANDING_STAGE = "podling"
 DEFAULT_TRADEMARK_NAME_SIMILARITY = 0.5
 PODLINGS_SOURCE_ENV = "IPMC_PODLINGS_SOURCE"
@@ -956,7 +959,7 @@ def load_podling_release_artifacts(
     *,
     release_dist_base: str | None = None,
     release_archive_base: str | None = None,
-    max_depth: int = 1,
+    max_depth: int = RELEASE_MAX_DEPTH,
     release_page_url: str | None = None,
     include_platforms: bool = False,
     github_project: str | None = None,

@@ -39,7 +39,10 @@ RELEASE_ARCHIVE_BASE_PROPERTY = {
 }
 RELEASE_MAX_DEPTH_PROPERTY = {
     "type": "integer",
-    "description": "Maximum ReleaseMCP traversal depth under the podling directory; defaults to 1",
+    "description": (
+        "Maximum ReleaseMCP traversal depth under the podling directory, 0 to 2; defaults to 2, which reaches"
+        " <version>/<subproject>/<file> release trees"
+    ),
 }
 INCLUDE_PLATFORMS_PROPERTY = {
     "type": "boolean",

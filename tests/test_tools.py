@@ -1223,6 +1223,9 @@ class ToolTests(unittest.TestCase):
                 }
             ],
             "incubating_hints": {"hints": []},
+            "source_statuses": [
+                {"source": "archive", "available": True, "file_count": 3, "error": "may be incomplete: 2.0.0/"}
+            ],
         }
         with mock.patch.object(tools, "build_records") as build:
             with mock.patch.object(tools, "load_podling_release_artifacts", return_value=evidence) as load_artifacts:
@@ -1251,6 +1254,7 @@ class ToolTests(unittest.TestCase):
         self.assertEqual(payload["generated_for"], "release_artifact_evidence")
         self.assertEqual(payload["observed"]["release_count"], 1)
         self.assertEqual(payload["observed"]["last_release_date"], "2026-04-01")
+        self.assertEqual(payload["release_source"]["source_statuses"][0]["error"], "may be incomplete: 2.0.0/")
         self.assertEqual(
             payload["missing_sidecars"],
             [{"artifact": "apache-shipping-1.0.0-incubating-source-release.zip", "missing": "signature"}],
@@ -1313,7 +1317,7 @@ class ToolTests(unittest.TestCase):
             "Shipping",
             release_dist_base=None,
             release_archive_base=None,
-            max_depth=1,
+            max_depth=2,
             release_page_url=None,
             include_platforms=True,
             github_project="shipping",
@@ -1385,7 +1389,7 @@ class ToolTests(unittest.TestCase):
         self.assertTrue(payload["release_page_checks"]["included"])
         self.assertEqual(payload["release_page_checks"]["location"], "https://shipping.incubator.apache.org/download/")
 
-    def test_release_artifact_evidence_defaults_to_one_level_release_scan(self) -> None:
+    def test_release_artifact_evidence_defaults_to_two_level_release_scan(self) -> None:
         evidence = {
             "source": "apache-incubator-releases",
             "available": True,
@@ -1400,7 +1404,7 @@ class ToolTests(unittest.TestCase):
                 tools.tool_release_artifact_evidence({"podling": "Shipping"})
 
         build.assert_not_called()
-        self.assertEqual(load_artifacts.call_args.kwargs["max_depth"], 1)
+        self.assertEqual(load_artifacts.call_args.kwargs["max_depth"], 2)
 
     def test_reporting_cohort_groups_current_reporting_podlings_without_ranking(self) -> None:
         reporting_issue = OversightRecord(
@@ -1806,3 +1810,10 @@ class ToolTests(unittest.TestCase):
     def test_validation_rejects_invalid_choice(self) -> None:
         with self.assertRaises(ValueError):
             tools.tool_podling_brief({"podling": "Alpha", "brief_format": "verbose"})
+
+    def test_release_max_depth_defaults_to_two_and_is_capped(self) -> None:
+        self.assertEqual(tools.optional_depth({}, "release_max_depth"), 2)
+        self.assertEqual(tools.optional_depth({"release_max_depth": 0}, "release_max_depth"), 0)
+        self.assertEqual(tools.optional_depth({"release_max_depth": 2}, "release_max_depth"), 2)
+        with self.assertRaisesRegex(ValueError, "between 0 and 2"):
+            tools.optional_depth({"release_max_depth": 3}, "release_max_depth")
