@@ -419,6 +419,15 @@ Arguments:
 - `include_evidence`: optional boolean, defaults to true
 - `strict_mode`: optional boolean
 
+A podling that has graduated or retired returns `assessment: not_applicable`
+unless `as_of_date` is before its end date.
+
+`release_maturity` needs a release within 12 months of `as_of_date` (or today).
+The health 12m window is measured from when the health report was generated,
+so when the podling's latest stated `last_release` is older than 12 months, the
+health window only counts if the health data is under a month old. Older health
+data is flagged in `missing_evidence`.
+
 ### `podling_brief`
 
 Return an IPMC-oriented briefing for one podling.
