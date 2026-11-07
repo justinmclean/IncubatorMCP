@@ -873,6 +873,9 @@ def _graduated_or_retired(record: OversightRecord) -> dict[str, Any] | None:
 
 
 STALE_SOURCE_DAYS = 14
+# A release vote thread with no result or cancel, and mail within this many
+# days, is treated as still open rather than abandoned.
+OPEN_VOTE_MAX_DAYS = 21
 
 
 def _days_between(earlier: date | None, later: date) -> int | None:
@@ -920,12 +923,23 @@ def _subject_key(subject: str) -> str:
     return re.sub(r"^(re|fwd?|aw)\s*:\s*", "", subject.strip(), flags=re.IGNORECASE).casefold()
 
 
+def _thread_core(key: str) -> str:
+    """Subject with its [TAGS], spacing and punctuation removed.
+
+    "[VOTE]Release Foo 1.0(Round2)", "[RESULT][VOTE] Release Foo 1.0 (Round2)"
+    and "[CANCEL][VOTE]Release Foo 1.0(Round2)" share one core, which ties a
+    result or cancel to the vote it closes.
+    """
+    return re.sub(r"[^a-z0-9.]", "", re.sub(r"\[[^\]]*\]", "", key))
+
+
 def mail_signals(record: OversightRecord) -> dict[str, Any]:
     """Release and governance facts read from the podling's general@incubator subjects.
 
     Only thread subjects are read, one entry per thread. A [RESULT] on
     general@ that mentions a release is an IPMC-approved release; a [CANCEL]
-    or "cancelled" vote is a failed attempt; a subject mentioning retirement
+    or "cancelled" vote is a failed attempt; a [VOTE] with no matching result
+    or cancel and recent mail is still open; a subject mentioning retirement
     is a retirement discussion.
     """
     reference = _reference_date(record)
@@ -950,6 +964,20 @@ def mail_signals(record: OversightRecord) -> dict[str, Any]:
         for k, d in threads.items()
         if ("[cancel" in k or "cancelled" in k or "canceled" in k) and ("vote" in k or "release" in k)
     ]
+    closed_cores = {
+        _thread_core(k) for k in threads if "[result" in k or "[cancel" in k or "cancelled" in k or "canceled" in k
+    }
+    open_votes = sorted(
+        k
+        for k, d in threads.items()
+        if "[vote" in k
+        and "[result" not in k
+        and "cancel" not in k
+        and "release" in k
+        and _thread_core(k) not in closed_cores
+        and d is not None
+        and 0 <= (reference - d).days <= OPEN_VOTE_MAX_DAYS
+    )
     retirement = sorted(k for k, d in threads.items() if "retir" in k and within_year(d))
     graduation = sorted(k for k, d in threads.items() if "graduat" in k and within_year(d))
 
@@ -961,7 +989,9 @@ def mail_signals(record: OversightRecord) -> dict[str, Any]:
         "ipmc_release_result_in_12m": within_year(latest_result),
         "latest_cancelled_vote": latest_cancel.isoformat() if latest_cancel else None,
         "cancelled_after_last_result": latest_cancel is not None
-        and (latest_result is None or latest_cancel > latest_result),
+        and (latest_result is None or latest_cancel > latest_result)
+        and not open_votes,
+        "open_release_votes": open_votes,
         "retirement_threads_12m": retirement,
         "graduation_threads_12m": graduation,
     }
@@ -1026,8 +1056,6 @@ def readiness_assessment(record: OversightRecord, strict_mode: bool = False) -> 
         missing_evidence.append(
             "Health data as of the requested date (current data is newer, so may include later activity)."
         )
-    elif health_age is not None and not health_is_fresh:
-        missing_evidence.append(f"Health data from the last month (current data is {health_age} days old).")
     release_maturity = "strong" if releases >= 1 else "weak"
     governance_health = (
         "strong" if reports_count >= 1 and record.mentor_count >= 2 else "mixed" if reports_count >= 1 else "weak"
@@ -1052,6 +1080,11 @@ def readiness_assessment(record: OversightRecord, strict_mode: bool = False) -> 
             blockers.append(
                 f"The most recent IPMC release vote on general@ was cancelled ({signals['latest_cancelled_vote']})"
                 " and no release result has followed."
+            )
+        if signals["open_release_votes"]:
+            missing_evidence.append(
+                f"A release vote is open on general@ ({signals['open_release_votes'][0]}); its result will settle"
+                " release maturity."
             )
         if signals["retirement_threads_12m"]:
             governance_health = "weak"
@@ -1082,7 +1115,7 @@ def readiness_assessment(record: OversightRecord, strict_mode: bool = False) -> 
         missing_evidence.append("Consistent incubator reporting in the recent window.")
     if signoffs < 2.0:
         missing_evidence.append("Stronger mentor sign-off evidence.")
-    if releases < 1:
+    if releases < 1 or release_maturity == "weak":
         missing_evidence.append("A visible recent release cadence.")
 
     strong_count = sum(1 for value in dimensions.values() if value == "strong")
@@ -1112,8 +1145,8 @@ def readiness_assessment(record: OversightRecord, strict_mode: bool = False) -> 
     elif release_maturity == "weak" and assessment in {"ready", "near_ready"}:
         assessment = "not_yet_ready"
         summary = (
-            "Other dimensions are strong, but there is no IPMC-approved release in the last 12 months, "
-            "which graduation requires."
+            "There is no IPMC-approved release in the last 12 months, which graduation requires, "
+            "so the podling is not yet ready whatever the other dimensions show."
         )
     elif freshness["stale_sources"] and assessment == "ready":
         assessment = "near_ready"
@@ -1126,14 +1159,20 @@ def readiness_assessment(record: OversightRecord, strict_mode: bool = False) -> 
     next_steps = []
     if assessment in {"near_ready", "ready"}:
         next_steps.append("Review the podling with mentors to confirm whether a graduation plan is timely.")
-    if releases < 1:
+    if signals is not None and signals["open_release_votes"]:
+        next_steps.append("Follow the open release vote on general@ through to a [RESULT].")
+    elif signals is not None and signals["cancelled_after_last_result"]:
+        next_steps.append("Help the podling fix what stopped the cancelled release vote and call a new one.")
+    if releases < 1 or release_maturity == "weak":
         next_steps.append("Encourage a visible, policy-compliant release cadence.")
+    if signals is not None and signals["retirement_threads_12m"]:
+        next_steps.append("Settle the retirement discussion on general@ before any graduation planning.")
     if signoffs < 2.0:
         next_steps.append("Increase mentor engagement and report sign-off consistency.")
     if reports_count < 1:
         next_steps.append("Ensure the podling is reporting reliably to the Incubator.")
     if not next_steps:
-        next_steps.append("Maintain current momentum and collect mentor feedback on graduation timing.")
+        next_steps.append("Ask the mentors which readiness gaps the podling should work on first.")
 
     return {
         "assessment": assessment,

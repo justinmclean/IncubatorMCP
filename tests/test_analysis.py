@@ -580,6 +580,44 @@ class AnalysisTests(unittest.TestCase):
         self.assertEqual(cancelled["dimension_scores"]["release_maturity"], "mixed")
         self.assertTrue(any("cancelled" in blocker for blocker in cancelled["blockers"]))
 
+    def test_readiness_treats_a_later_open_vote_round_as_in_progress(self) -> None:
+        metrics = self._ready_metrics()
+        mail = [
+            {"subject": "[RESULT][VOTE] Release Apache Example 1.0.0", "date": "2025-11-01 00:00:00 UTC"},
+            {"subject": "[VOTE]Release Apache Example 1.1.0(Round1)", "date": "2026-03-05 00:00:00 UTC"},
+            {"subject": "[CANCEL][VOTE]Release Apache Example 1.1.0(Round1)", "date": "2026-03-10 00:00:00 UTC"},
+            {"subject": "[VOTE]Release Apache Example 1.1.0(Round2)", "date": "2026-04-10 00:00:00 UTC"},
+            {"subject": "Re: [VOTE]Release Apache Example 1.1.0(Round2)", "date": "2026-04-14 00:00:00 UTC"},
+            {"subject": "[VOTE] Release Apache Example 0.9.0", "date": "2026-01-02 00:00:00 UTC"},
+        ]
+        result = readiness_assessment(
+            make_record(metrics=metrics, twelve_month_metrics=metrics, incubator_general_mail=mail)
+        )
+        signals = result["mail_signals"]
+        self.assertEqual(signals["open_release_votes"], ["[vote]release apache example 1.1.0(round2)"])
+        self.assertFalse(signals["cancelled_after_last_result"])
+        self.assertFalse(any("cancelled" in blocker for blocker in result["blockers"]))
+        self.assertTrue(any("release vote is open" in item for item in result["missing_evidence"]))
+        self.assertIn(
+            "Follow the open release vote on general@ through to a [RESULT].", result["recommended_next_steps"]
+        )
+
+    def test_readiness_next_steps_match_a_weak_release_verdict(self) -> None:
+        # Health counts a release, but general@ shows no result in 12 months and a later cancelled vote.
+        metrics = self._ready_metrics() | {"releases": 1}
+        mail = [{"subject": "[CANCEL][VOTE] Release Apache Example 2.0.0", "date": "2026-02-10 00:00:00 UTC"}]
+        result = readiness_assessment(
+            make_record(metrics=metrics, twelve_month_metrics=metrics, incubator_general_mail=mail)
+        )
+        self.assertEqual(result["dimension_scores"]["release_maturity"], "weak")
+        self.assertEqual(result["assessment"], "not_yet_ready")
+        self.assertNotIn("Other dimensions are strong", result["summary"])
+        steps = result["recommended_next_steps"]
+        self.assertIn("Encourage a visible, policy-compliant release cadence.", steps)
+        self.assertTrue(any("cancelled release vote" in step for step in steps))
+        self.assertFalse(any("momentum" in step for step in steps))
+        self.assertIn("A visible recent release cadence.", result["missing_evidence"])
+
     def test_readiness_retirement_thread_caps_the_verdict(self) -> None:
         metrics = self._ready_metrics()
         mail = [
@@ -615,7 +653,7 @@ class AnalysisTests(unittest.TestCase):
         self.assertEqual(stale_result["source_freshness"]["stale_sources"], ["health_report", "general_mail"])
         self.assertEqual(stale_result["source_freshness"]["general_mail_age_days"], 47)
         self.assertEqual(stale_result["assessment"], "near_ready")
-        self.assertTrue(any("76 days old" in item for item in stale_result["missing_evidence"]))
+        self.assertEqual(sum("76 days old" in item for item in stale_result["missing_evidence"]), 1)
         self.assertEqual(confidence_for_record(stale), "medium")
 
     def test_readiness_assessment_requires_release_in_12m_window(self) -> None:

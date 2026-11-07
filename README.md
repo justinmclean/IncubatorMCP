@@ -431,13 +431,17 @@ health window only counts if the health data is under a month old. Older health
 data is flagged in `missing_evidence`.
 
 General-list mail about the podling is searched live and read for release and
-governance facts, returned as `mail_signals`:
+governance facts, returned as `mail_signals`. Each podling gets two searches:
+its name (newest 20 messages) and its name with "result" (newest 50), so busy
+vote threads cannot push older release results out of view.
 
 - an IPMC release vote `[RESULT]` on general@ in the last 12 months makes
   `release_maturity` strong even when the health window shows no release, and
   its absence holds it at mixed;
 - a cancelled vote after the last result lowers `release_maturity` one step and
-  is listed in `blockers`;
+  is listed in `blockers`, unless a later round of the vote is still open;
+- a release `[VOTE]` with no matching `[RESULT]` or `[CANCEL]` and mail in the
+  last 21 days is listed in `open_release_votes` and in `missing_evidence`;
 - a retirement discussion in the last 12 months makes `governance_health` weak
   and holds the verdict at `not_yet_ready`.
 
