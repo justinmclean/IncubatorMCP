@@ -450,6 +450,7 @@ def _source_data_used(record: Any) -> list[dict[str, Any]]:
         "source": "apache-incubator-mail",
         "fields": ["id", "subject", "from", "date", "thread_id", "permalink"],
         "available": bool(record.incubator_general_mail),
+        "loaded": record.mail_loaded,
         "observed": {
             "matching_general_mail_count": len(record.incubator_general_mail),
             "latest_message_date": (
@@ -489,7 +490,11 @@ def _missing_context(record: Any, extra_missing: list[str] | None = None) -> lis
     if not record.incubator_reports:
         missing.append("Cached Incubator report entries from ReportMCP.")
     if not record.incubator_general_mail:
-        missing.append("Cached Incubator general-list messages from MailMCP.")
+        missing.append(
+            "General-list mail from MailMCP: none found for this podling in the live search or the cache."
+            if record.mail_loaded
+            else "General-list mail from MailMCP: not loaded by this tool."
+        )
     if extra_missing:
         missing.extend(extra_missing)
     return sorted(set(missing)) or ["No obvious missing source data for this opinion."]
@@ -747,7 +752,7 @@ def tool_ipmc_watchlist(arguments: dict[str, Any]) -> dict[str, Any]:
 
 
 def tool_graduation_readiness(arguments: dict[str, Any]) -> dict[str, Any]:
-    _, data, record = _load_single_podling_record(arguments, include_mail=False)
+    _, data, record = _load_single_podling_record(arguments, include_mail=True)
     include_evidence = optional_boolean(arguments, "include_evidence", True)
     strict_mode = optional_boolean(arguments, "strict_mode", False) or False
 
@@ -790,7 +795,7 @@ def tool_graduation_readiness(arguments: dict[str, Any]) -> dict[str, Any]:
 def tool_podling_brief(arguments: dict[str, Any]) -> dict[str, Any]:
     brief_format = optional_choice(arguments, "brief_format", BRIEF_FORMATS) or "summary"
     focus = optional_list_of_choices(arguments, "focus", FOCUS_AREAS) or []
-    _, data, record = _load_single_podling_record(arguments, include_mail=False)
+    _, data, record = _load_single_podling_record(arguments, include_mail=True)
 
     evaluation = evaluate_record(record)
     readiness = readiness_assessment(record)
@@ -1168,7 +1173,7 @@ def tool_release_vote_evidence(arguments: dict[str, Any]) -> dict[str, Any]:
         mail_source=sources["mail_source"],
         podlings=[record.podling],
         mail_api_base=mail_api_base,
-        allow_live_fallback=False,
+        live=False,
     )
     history = load_podling_release_vote_history(
         record.name,
@@ -1820,16 +1825,22 @@ def tool_community_health_summary(arguments: dict[str, Any]) -> dict[str, Any]:
 
 
 def _podling_website_url(podling_record: dict[str, Any]) -> str | None:
+    """Homepage for a podling: https://<slug>.apache.org/ from the podlings.xml resource slug.
+
+    podlings.xml carries the slug in ``resource``, not a URL; a full URL is
+    accepted too for callers that already resolved one.
+    """
     resource = podling_record.get("resource")
-    if isinstance(resource, str) and resource.strip():
-        return resource.strip()
-    # PodlingsMCP sometimes nests the URL under a structured resource object.
     if isinstance(resource, dict):
-        for key in ("href", "url", "value"):
-            value = resource.get(key)
-            if isinstance(value, str) and value.strip():
-                return value.strip()
-    return None
+        resource = next(
+            (resource.get(key) for key in ("href", "url", "value") if isinstance(resource.get(key), str)), None
+        )
+    if not isinstance(resource, str) or not resource.strip():
+        return None
+    resource = resource.strip()
+    if resource.startswith(("http://", "https://")):
+        return resource
+    return f"https://{resource.lower()}.apache.org/"
 
 
 def _find_podling(podlings: list[dict[str, Any]], name: str) -> dict[str, Any] | None:

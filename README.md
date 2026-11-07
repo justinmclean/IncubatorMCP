@@ -7,7 +7,7 @@ It composes:
 - podling lifecycle data from `apache-podlings-mcp`
 - community and report signals from `apache-health-mcp`
 - cached Incubator report entries from `apache-incubator-reports-mcp`
-- cached Incubator general-list messages from `apache-incubator-mail-mcp`
+- Incubator general-list messages from `apache-incubator-mail-mcp`, searched live per podling with the cache as fallback
 - live Incubator release vote/result thread evidence from `apache-incubator-mail-mcp`
 - release artifact, signature, checksum, cadence, release download page, and optional platform-distribution evidence from `apache-incubator-releases-mcp`
 - ASF naming, project-website branding, and third-party trademark use checks from `apache-trademark-mcp`
@@ -116,6 +116,8 @@ Configure startup defaults with command-line arguments or environment variables:
 - `--report-source` or `IPMC_REPORT_SOURCE`: local path for ReportMCP cached ASF Incubator report files
 - `--mail-source` or `IPMC_MAIL_SOURCE`: local path for MailMCP cached ASF Incubator general-list message files
 - `--mail-api-base` or `IPMC_MAIL_API_BASE`: MailMCP/Pony Mail API base URL for live Incubator general-list search
+
+General-list mail is fetched live for every podling a tool call is about, so the evidence is as recent as the list. The `--mail-source` cache is a fallback for podlings whose live search fails and a store for the live results; cached messages older than the live window are kept alongside them. The mail metadata reports `mode` (`live`, `live+cache`, `cache` or `unavailable`), `source_by_podling` and `live_failures` so a reader can see which podlings came from where.
 - `--release-dist-base` or `IPMC_RELEASE_DIST_BASE`: optional ReleaseMCP current release base URL or local release directory; when unset, ReleaseMCP discovers the podling download page
 - `--release-archive-base` or `IPMC_RELEASE_ARCHIVE_BASE`: ReleaseMCP `archive.apache.org` base URL or local archive directory
 - `--http`: serve JSON-RPC/MCP over HTTP instead of stdio

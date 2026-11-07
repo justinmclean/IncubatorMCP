@@ -2,45 +2,26 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import threading
 from dataclasses import asdict, dataclass, field
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
 from apache_health_mcp import parser as health_parser
+from apache_incubator_mail_mcp import client as incubator_mail_client  # type: ignore[import-not-found]
+from apache_incubator_releases_mcp import releases as incubator_releases  # type: ignore[import-not-found]
+from apache_incubator_reports_mcp import parser as incubator_report_parser  # type: ignore[import-not-found]
+from apache_trademark_mcp import compliance as trademark_compliance  # type: ignore[import-not-found]
+from apache_trademark_mcp import policy as trademark_policy  # type: ignore[import-not-found]
+from apache_trademark_mcp import projects as trademark_projects  # type: ignore[import-not-found]
+from apache_trademark_mcp import search as trademark_search  # type: ignore[import-not-found]
+from apache_trademark_mcp import web as trademark_web  # type: ignore[import-not-found]
 from podlings import data as podlings_data
 from podlings import tools as podlings_tools
-
-try:
-    from apache_incubator_reports_mcp import parser as incubator_report_parser  # type: ignore[import-not-found]
-except ImportError:  # pragma: no cover - exercised when optional source package is absent locally
-    incubator_report_parser = None  # type: ignore[assignment]
-
-try:
-    from apache_incubator_mail_mcp import client as incubator_mail_client  # type: ignore[import-not-found]
-except ImportError:  # pragma: no cover - exercised when optional source package is absent locally
-    incubator_mail_client = None  # type: ignore[assignment]
-
-try:
-    from apache_incubator_releases_mcp import releases as incubator_releases  # type: ignore[import-not-found]
-except ImportError:  # pragma: no cover - exercised when optional source package is absent locally
-    incubator_releases = None  # type: ignore[assignment]
-
-try:
-    from apache_trademark_mcp import compliance as trademark_compliance  # type: ignore[import-not-found]
-    from apache_trademark_mcp import policy as trademark_policy  # type: ignore[import-not-found]
-    from apache_trademark_mcp import projects as trademark_projects  # type: ignore[import-not-found]
-    from apache_trademark_mcp import search as trademark_search  # type: ignore[import-not-found]
-    from apache_trademark_mcp import web as trademark_web  # type: ignore[import-not-found]
-except ImportError:  # pragma: no cover - exercised when optional source package is absent locally
-    trademark_compliance = None  # type: ignore[assignment]
-    trademark_policy = None  # type: ignore[assignment]
-    trademark_projects = None  # type: ignore[assignment]
-    trademark_search = None  # type: ignore[assignment]
-    trademark_web = None  # type: ignore[assignment]
 
 DEFAULT_HEALTH_SOURCE = "reports"
 DEFAULT_REPORT_SOURCE = ".cache/incubator-reports"
@@ -88,6 +69,7 @@ TREND_FIELD_LABELS = {
 TREND_SECTION_RE = re.compile(r"^## Trends \(short vs medium\)\s*(.*?)(?=^## |\Z)", re.MULTILINE | re.DOTALL)
 TREND_LINE_RE = re.compile(r"^-\s+\*\*(?P<label>[^*]+):\*\*.*\((?P<trend>[^)]*)\)\s*$", re.MULTILINE)
 PODLING_KEY_RE = re.compile(r"[^a-z0-9]+")
+_PODLING_PATTERN_CACHE: dict[str, re.Pattern[str]] = {}
 
 
 def configure_defaults(
@@ -189,6 +171,7 @@ class OversightRecord:
     as_of_date: str | None
     incubator_reports: list[dict[str, Any]] = field(default_factory=list)
     incubator_general_mail: list[dict[str, Any]] = field(default_factory=list)
+    mail_loaded: bool = True
 
     @property
     def name(self) -> str:
@@ -454,19 +437,6 @@ def source_defaults() -> dict[str, Any]:
 
 def load_incubator_reports(report_source: str | None = None) -> tuple[dict[str, list[dict[str, Any]]], dict[str, Any]]:
     reports_dir, explicit = _resolved_report_source(report_source)
-    if incubator_report_parser is None:
-        return (
-            {},
-            {
-                "source": reports_dir,
-                "reports_dir": reports_dir,
-                "report_count": 0,
-                "podling_count": 0,
-                "available": False,
-                "reason": "apache-incubator-reports-mcp is not installed.",
-            },
-        )
-
     if not Path(reports_dir).expanduser().exists():
         if explicit:
             raise FileNotFoundError(f"ReportMCP source path does not exist: {reports_dir}")
@@ -516,15 +486,6 @@ def refresh_incubator_report_cache(
     report_id: str | None = None,
 ) -> dict[str, Any]:
     reports_dir, _explicit = _resolved_report_source(report_source)
-    if incubator_report_parser is None:
-        return {
-            "source": reports_dir,
-            "reports_dir": reports_dir,
-            "available": False,
-            "cached": False,
-            "reason": "apache-incubator-reports-mcp is not installed.",
-        }
-
     if report_url:
         cache_one = getattr(incubator_report_parser, "cache_report_url")
         result = cache_one(
@@ -591,12 +552,36 @@ def _filter_report_cache_result_to_years(result: dict[str, Any], years: int) -> 
     return filtered
 
 
+def _podling_name_pattern(podling_name: str) -> re.Pattern[str]:
+    """Regex that matches a podling name as a whole word, however it is spaced.
+
+    The name is split into tokens on separators and on CamelCase boundaries
+    ("Pony Mail" and "PonyMail" both give pony, mail; "GraphAr" gives graph,
+    ar). Tokens may be joined by nothing or by a space, hyphen or underscore,
+    and the whole must sit on word boundaries, so "KIE" does not match
+    "cookie" and "Burr" does not match "Burroughs".
+    """
+    pattern = _PODLING_PATTERN_CACHE.get(podling_name)
+    if pattern is not None:
+        return pattern
+    camel_split = re.sub(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])", " ", podling_name)
+    tokens = [tok for tok in re.split(r"[^A-Za-z0-9]+", camel_split) if tok]
+    if not tokens:
+        tokens = [podling_name]
+    body = r"[\s\-_]?".join(re.escape(tok) for tok in tokens)
+    pattern = re.compile(rf"(?<![a-z0-9]){body}(?![a-z0-9])", re.IGNORECASE)
+    _PODLING_PATTERN_CACHE[podling_name] = pattern
+    return pattern
+
+
 def _mail_matches_podling(message: dict[str, Any], podling_name: str) -> bool:
-    needle = podling_name.casefold()
-    haystack = "\n".join(
-        str(message.get(field, "")) for field in ("subject", "from", "message_id", "id", "thread_id")
-    ).casefold()
-    return needle in haystack or _podling_key(podling_name) in _podling_key(haystack)
+    """True when the message subject names the podling as a whole word.
+
+    Only the subject is searched. Sender addresses and Pony Mail ids are
+    random with respect to the podling and produced false matches.
+    """
+    subject = str(message.get("subject", ""))
+    return bool(subject) and _podling_name_pattern(podling_name).search(subject) is not None
 
 
 def _mail_unavailable_meta(source: str, reason: str, *, api_base: str | None = None) -> dict[str, Any]:
@@ -663,77 +648,145 @@ def _load_live_incubator_general_mail(
     )
 
 
+def _store_live_mail(cache_root: str, emails: list[dict[str, Any]], *, query: str, timespan: str) -> int:
+    """Write live search results into the MailMCP cache so the next run has a fallback.
+
+    Uses the same per-message JSON layout MailMCP writes itself. Best effort: a
+    failure to write never affects the evidence returned.
+    """
+    key_fn = getattr(incubator_mail_client, "cache_key", None)
+    if key_fn is None:
+        return 0
+    base = Path(cache_root).expanduser()
+    if not base.is_dir():
+        return 0
+    cached_at = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    written = 0
+    for email in emails:
+        message_id = email.get("id")
+        if not message_id:
+            continue
+        payload = {
+            **email,
+            "cached_at": cached_at,
+            "source_query": query,
+            "source_timespan": timespan,
+            "source_list": "general@incubator.apache.org",
+        }
+        try:
+            (base / f"{key_fn(str(message_id))}.json").write_text(
+                json.dumps(payload, ensure_ascii=True, indent=2, sort_keys=True), encoding="utf-8"
+            )
+            written += 1
+        except OSError:
+            continue
+    return written
+
+
 def load_incubator_general_mail(
     mail_source: str | None = None,
     podlings: list[dict[str, Any]] | None = None,
     *,
     mail_api_base: str | None = None,
-    allow_live_fallback: bool = True,
+    live: bool = True,
+    timespan: str = DEFAULT_MAIL_SEARCH_TIMESPAN,
+    limit: int = DEFAULT_MAIL_QUERY_LIMIT,
 ) -> tuple[dict[str, list[dict[str, Any]]], dict[str, Any]]:
+    """Return general@incubator mail per podling, live first.
+
+    For every podling in scope the Pony Mail API is searched now, so the
+    evidence is as recent as the list itself. The MailMCP cache directory is a
+    fallback for podlings whose live search fails, and a store for the live
+    results so the fallback is as fresh as the last successful fetch. Cached
+    messages older than the live window are kept alongside the live ones.
+    With ``live=False`` only the cache is read.
+    """
     cache_dir, explicit = _resolved_mail_source(mail_source)
     api_base = _resolved_mail_api_base(mail_api_base)
-    if incubator_mail_client is None:
-        return (
-            {},
-            _mail_unavailable_meta(cache_dir, "apache-incubator-mail-mcp is not installed.", api_base=api_base),
-        )
+    cache_exists = Path(cache_dir).expanduser().exists()
+    if explicit and not cache_exists:
+        raise FileNotFoundError(f"MailMCP source path does not exist: {cache_dir}")
 
-    if not Path(cache_dir).expanduser().exists():
-        if explicit:
-            raise FileNotFoundError(f"MailMCP source path does not exist: {cache_dir}")
-        if not allow_live_fallback:
-            return (
-                {},
-                _mail_unavailable_meta(
-                    cache_dir,
-                    "Default MailMCP cache directory does not exist.",
-                    api_base=api_base,
-                ),
-            )
-        try:
-            live_mail, live_meta = _load_live_incubator_general_mail(podlings, api_base=api_base)
-        except Exception as exc:
-            return (
-                {},
-                _mail_unavailable_meta(
-                    api_base,
-                    f"Default MailMCP cache directory does not exist and live MailMCP search failed: {exc}",
-                    api_base=api_base,
-                ),
-            )
-        live_meta["fallback_reason"] = "Default MailMCP cache directory does not exist."
-        return live_mail, live_meta
-
-    cached = incubator_mail_client.load_cached_mail(cache_dir=cache_dir)
-    messages = cached.get("emails") or []
-    if not messages and allow_live_fallback and podlings:
-        try:
-            live_mail, live_meta = _load_live_incubator_general_mail(podlings, api_base=api_base)
-        except Exception as exc:
-            meta = _normalize_mail_source_meta(cached, cache_dir)
-            meta["message_count"] = 0
-            meta["podling_count"] = 0
-            meta["available"] = False
-            meta["reason"] = f"MailMCP cache directory is empty and live MailMCP search failed: {exc}"
-            meta["api_base"] = api_base
-            return {}, meta
-        live_meta["fallback_reason"] = "MailMCP cache directory is empty."
-        live_meta["cache_dir"] = cache_dir
-        return live_mail, live_meta
+    cached: dict[str, Any] = {"cache_dir": cache_dir, "count": 0, "emails": []}
+    if cache_exists:
+        cached = incubator_mail_client.load_cached_mail(cache_dir=cache_dir)
+    cached_messages = cached.get("emails") or []
+    cache_root = str(cached.get("cache_dir") or cache_dir)
 
     by_podling: dict[str, list[dict[str, Any]]] = {}
+    source_by_podling: dict[str, str] = {}
+    live_failures: dict[str, str] = {}
+    live_attempted = 0
+    live_succeeded = 0
+    written = 0
+
+    fetcher = getattr(incubator_mail_client, "fetch_mail_stats", None) if live else None
+    fetcher_missing = live and fetcher is None
+
     for podling in podlings or []:
         podling_name = str(podling.get("name", ""))
         if not podling_name:
             continue
-        matches = [message for message in messages if _mail_matches_podling(message, podling_name)]
-        if matches:
-            by_podling[_podling_key(podling_name)] = matches
+        key = _podling_key(podling_name)
+        cached_slice = [message for message in cached_messages if _mail_matches_podling(message, podling_name)]
+
+        live_slice: list[dict[str, Any]] | None = None
+        if fetcher is not None:
+            live_attempted += 1
+            try:
+                result = fetcher(api_base=api_base, timespan=timespan, query=podling_name, limit=limit)
+                live_slice = [
+                    message for message in result.get("emails", []) if _mail_matches_podling(message, podling_name)
+                ]
+                live_succeeded += 1
+                if live_slice and cache_exists:
+                    written += _store_live_mail(cache_root, live_slice, query=podling_name, timespan=timespan)
+            except Exception as exc:  # noqa: BLE001 - any live failure falls back to the cache
+                live_failures[key] = str(exc)
+
+        if live_slice is not None:
+            seen = {str(message.get("id")) for message in live_slice if message.get("id")}
+            merged = list(live_slice) + [m for m in cached_slice if str(m.get("id")) not in seen]
+            if merged:
+                by_podling[key] = merged
+                source_by_podling[key] = "live+cache" if len(merged) > len(live_slice) else "live"
+        elif cached_slice:
+            by_podling[key] = cached_slice
+            source_by_podling[key] = "cache"
 
     meta = _normalize_mail_source_meta(cached, cache_dir)
-    meta["message_count"] = cached.get("count", len(messages))
+    meta["cache_dir"] = cache_root if cache_exists else cache_dir
+    meta["cache_message_count"] = cached.get("count", len(cached_messages))
+    meta["api_base"] = api_base
+    meta["timespan"] = timespan
+    meta["live_requested"] = bool(live)
+    meta["live_podling_count"] = live_succeeded
+    meta["live_failures"] = live_failures
+    meta["source_by_podling"] = source_by_podling
+    meta["cached_messages_written"] = written
+    meta["message_count"] = sum(len(messages) for messages in by_podling.values())
     meta["podling_count"] = len(by_podling)
-    meta["available"] = True
+
+    if live_succeeded:
+        meta["source"] = api_base
+        meta["mode"] = "live" if not any(v != "live" for v in source_by_podling.values()) else "live+cache"
+        meta["available"] = True
+    elif live and live_attempted and not cached_messages:
+        first_error = next(iter(live_failures.values()), "no response")
+        meta["mode"] = "unavailable"
+        meta["available"] = False
+        meta["reason"] = (
+            f"MailMCP cache holds no messages and live MailMCP search failed: {first_error}"
+            if live_failures
+            else "MailMCP cache holds no messages and live MailMCP search returned nothing."
+        )
+    else:
+        meta["mode"] = "cache"
+        meta["available"] = cache_exists
+        if fetcher_missing:
+            meta["reason"] = "Installed MailMCP does not provide fetch_mail_stats for live general-list search."
+        elif not cache_exists:
+            meta["reason"] = "Default MailMCP cache directory does not exist."
     return by_podling, meta
 
 
@@ -748,11 +801,6 @@ def refresh_incubator_general_mail_cache(
     cache_dir, _explicit = _resolved_mail_source(mail_source)
     api_base = _resolved_mail_api_base(mail_api_base)
     resolved_timespan = timespan or DEFAULT_MAIL_SEARCH_TIMESPAN
-    if incubator_mail_client is None:
-        return _mail_unavailable_meta(cache_dir, "apache-incubator-mail-mcp is not installed.", api_base=api_base) | {
-            "cached": False,
-        }
-
     cacher = getattr(incubator_mail_client, "cache_mail_stats", None)
     if cacher is None:
         return _mail_unavailable_meta(
@@ -801,9 +849,6 @@ def load_podling_release_vote_history(
         "votes": [],
         "results": [],
     }
-    if incubator_mail_client is None:
-        return unavailable | {"reason": "apache-incubator-mail-mcp is not installed."}
-
     history_loader = getattr(incubator_mail_client, "podling_release_vote_history", None)
     if history_loader is None:
         return unavailable | {"reason": "Installed MailMCP does not provide podling_release_vote_history."}
@@ -853,15 +898,6 @@ def load_podling_release_artifacts(
         "checksum_count": 0,
         "releases": [],
     }
-    if incubator_releases is None:
-        return unavailable | {
-            "reason": (
-                "apache-incubator-releases-mcp is not importable in the IPMC server environment. "
-                "Install or update IPMC dependencies, or include the ReleaseMCP src directory on PYTHONPATH "
-                "when running server.py from a checkout."
-            )
-        }
-
     try:
         release_kwargs: dict[str, Any] = {
             "archive_base": archive_base,
@@ -992,8 +1028,24 @@ def build_records(
     podlings, podlings_meta = load_podlings(podlings_source)
     summaries, health_meta = load_health_summaries(health_source)
     report_entries, report_meta = load_incubator_reports(report_source)
+
+    requested_podling_name = requested_podling.strip() if requested_podling else None
+    requested_podling_key = _podling_key(requested_podling_name) if requested_podling_name else None
+
     if include_mail:
-        mail_entries, mail_meta = load_incubator_general_mail(mail_source, podlings, mail_api_base=mail_api_base)
+        # Search mail only for the podlings this call is about: the requested
+        # one, or the podlings that will become records. podlings.xml lists
+        # every podling that ever existed, and a live search per entry would
+        # be hundreds of API calls.
+        if requested_podling_key:
+            mail_scope = [p for p in podlings if _podling_key(str(p.get("name", ""))) == requested_podling_key] or [
+                {"name": requested_podling_name}
+            ]
+        else:
+            mail_scope = [
+                p for p in podlings if include_non_current or str(p.get("status") or "unknown").lower() == "current"
+            ]
+        mail_entries, mail_meta = load_incubator_general_mail(mail_source, mail_scope, mail_api_base=mail_api_base)
     else:
         mail_entries = {}
         mail_meta = {
@@ -1003,8 +1055,6 @@ def build_records(
         }
 
     records: list[OversightRecord] = []
-    requested_podling_name = requested_podling.strip() if requested_podling else None
-    requested_podling_key = _podling_key(requested_podling_name) if requested_podling_name else None
     for podling in podlings:
         podling_name = str(podling.get("name", ""))
         podling_key = _podling_key(podling_name)
@@ -1020,6 +1070,7 @@ def build_records(
                 report_summary=summary,
                 incubator_reports=report_entries.get(podling_key, []),
                 incubator_general_mail=mail_entries.get(podling_key, []),
+                mail_loaded=include_mail,
                 preferred_window=preferred_window,
                 preferred_metrics=preferred_metrics,
                 reporting_window=reporting_window,
@@ -1047,6 +1098,7 @@ def build_records(
                     report_summary=summary,
                     incubator_reports=incubator_reports,
                     incubator_general_mail=incubator_general_mail,
+                    mail_loaded=include_mail,
                     preferred_window=preferred_window,
                     preferred_metrics=preferred_metrics,
                     reporting_window=reporting_window,
@@ -1074,8 +1126,6 @@ def _trademark_unavailable_meta(reason: str) -> dict[str, Any]:
 
 def _trademark_cache_path() -> Any:
     """Return the cache dir Path that the trademark package should use."""
-    if trademark_projects is None:
-        return None
     explicit = _resolved_trademark_cache()
     return trademark_projects.cache_dir_from_env(explicit)
 
@@ -1096,14 +1146,6 @@ def load_proposed_name_check(
     (``search_asf_projects``). Returns a uniform IPMC-shaped payload so callers
     do not need to know the upstream tool layout.
     """
-    if trademark_projects is None or trademark_policy is None:
-        return _trademark_unavailable_meta(
-            "apache-trademark-mcp is not installed. Add it as an IPMC source dependency to enable naming checks."
-        ) | {
-            "proposed_name": proposed_name,
-            "available": False,
-        }
-
     if trademark_cache:
         configure_defaults(trademark_cache=trademark_cache)
 
@@ -1151,7 +1193,7 @@ def load_proposed_name_check(
         )
 
     external_search: dict[str, Any] | None = None
-    if include_external_search and trademark_search is not None:
+    if include_external_search:
         try:
             results = trademark_search.run_external_searches(proposed_name)
             github, pypi, npm = results["github"], results["pypi"], results["npm"]
@@ -1198,12 +1240,6 @@ def load_project_website_branding_check(
     trademark_cache: str | None = None,
 ) -> dict[str, Any]:
     """Fetch a project website and run the trademark MCP's branding-compliance rules."""
-    if trademark_compliance is None or trademark_web is None or trademark_projects is None or trademark_policy is None:
-        return _trademark_unavailable_meta(
-            "apache-trademark-mcp is not installed. Add it as an IPMC source dependency "
-            "to enable project-website branding checks."
-        ) | {"target_url": url, "available": False}
-
     if stage not in trademark_policy.VALID_BRANDING_STAGES:
         raise ValueError(f"'stage' must be one of: {', '.join(sorted(trademark_policy.VALID_BRANDING_STAGES))}")
 
@@ -1250,12 +1286,6 @@ def load_third_party_use_check(
     trademark_cache: str | None = None,
 ) -> dict[str, Any]:
     """Fetch a third-party page and run the trademark MCP's policy rules."""
-    if trademark_compliance is None or trademark_web is None or trademark_projects is None:
-        return _trademark_unavailable_meta(
-            "apache-trademark-mcp is not installed. Add it as an IPMC source dependency "
-            "to enable third-party trademark use checks."
-        ) | {"target_url": url, "available": False}
-
     if trademark_cache:
         configure_defaults(trademark_cache=trademark_cache)
     cache_dir = _trademark_cache_path()
@@ -1287,9 +1317,6 @@ def load_third_party_use_check(
 
 def refresh_trademark_project_cache(trademark_cache: str | None = None) -> dict[str, Any]:
     """Force a fresh fetch of the ASF committees+podlings list used by the trademark MCP."""
-    if trademark_projects is None:
-        return _trademark_unavailable_meta("apache-trademark-mcp is not installed.") | {"cached": False}
-
     if trademark_cache:
         configure_defaults(trademark_cache=trademark_cache)
     cache_dir = _trademark_cache_path()

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from textwrap import dedent
 from typing import Iterator
+from unittest import mock
 
 from ipmc import data
 
@@ -124,15 +125,36 @@ def make_fixture_sources() -> Iterator[FixtureSources]:
         (reports_dir / "Bravo.md").write_text(BRAVO_REPORT, encoding="utf-8")
         (reports_dir / "Delta.md").write_text(DELTA_REPORT, encoding="utf-8")
 
+        mail_dir = base / "mail"
+        mail_dir.mkdir()
+
         configured_defaults = data.configured_defaults_snapshot()
-        data.configure_defaults(health_source=str(reports_dir))
+        data.configure_defaults(health_source=str(reports_dir), mail_source=str(mail_dir))
         try:
-            yield FixtureSources(
-                podlings_source=str(xml_path),
-                health_source=str(reports_dir),
-            )
+            # Tools built from these fixtures must never reach lists.apache.org:
+            # the stub answers every live search with no messages and the empty
+            # mail directory above stands in for the MailMCP cache.
+            with mock.patch.object(data, "incubator_mail_client", _OfflineMailClient()):
+                yield FixtureSources(
+                    podlings_source=str(xml_path),
+                    health_source=str(reports_dir),
+                )
         finally:
             data.restore_configured_defaults(configured_defaults)
+
+
+class _OfflineMailClient:
+    @staticmethod
+    def load_cached_mail(*, cache_dir: str, **_: object) -> dict[str, object]:
+        return {"cache_dir": cache_dir, "count": 0, "emails": []}
+
+    @staticmethod
+    def fetch_mail_stats(**_: object) -> dict[str, object]:
+        return {"hits": 0, "emails": []}
+
+    @staticmethod
+    def cache_key(message_id: str) -> str:
+        return message_id
 
 
 FAKE_PODLINGS_DATA = dedent(
