@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -133,14 +134,55 @@ def make_fixture_sources() -> Iterator[FixtureSources]:
         try:
             # Tools built from these fixtures must never reach lists.apache.org:
             # the stub answers every live search with no messages and the empty
-            # mail directory above stands in for the MailMCP cache.
-            with mock.patch.object(data, "incubator_mail_client", _OfflineMailClient()):
+            # mail directory above stands in for the MailMCP cache. Status
+            # pages and name searches come from STATUS_PAGES and NAME_SEARCHES
+            # rather than incubator.apache.org and issues.apache.org.
+            with (
+                mock.patch.object(data, "incubator_mail_client", _OfflineMailClient()),
+                mock.patch.object(data, "_fetch_url", _offline_fetch),
+            ):
                 yield FixtureSources(
                     podlings_source=str(xml_path),
                     health_source=str(reports_dir),
                 )
         finally:
             data.restore_configured_defaults(configured_defaults)
+
+
+def status_page(*entries: str) -> str:
+    """A podling status page whose News section holds the given entries."""
+    items = "".join(f"<li>{entry}</li>" for entry in entries)
+    return f"<h2 id='News'>News</h2><div><ul>{items}</ul></div><h2 id='Project+info'>Project info</h2>"
+
+
+# Status pages for the fixture podlings, keyed by slug.
+STATUS_PAGES = {
+    "delta": status_page("2024-02-10 New committer: Dana Delta.", "2023-06-01 Project enters incubation."),
+}
+
+# PODLINGNAMESEARCH issues for the fixture podlings, keyed by name.
+NAME_SEARCHES = {
+    "Delta": [
+        {
+            "key": "PODLINGNAMESEARCH-1",
+            "fields": {
+                "summary": 'Establish whether "Apache Delta" is a suitable name',
+                "status": {"name": "Resolved"},
+                "resolution": {"name": "Fixed"},
+                "resolutiondate": "2023-09-01T00:00:00.000+0000",
+                "created": "2023-08-01T00:00:00.000+0000",
+            },
+        }
+    ],
+}
+
+
+def _offline_fetch(url: str) -> str:
+    if url.startswith(data.DEFAULT_NAME_SEARCH_API):
+        issues = [issue for name, found in NAME_SEARCHES.items() if f"%5C%22{name}%5C%22" in url for issue in found]
+        return json.dumps({"issues": issues})
+    slug = url.rsplit("/", 1)[-1].removesuffix(".html")
+    return STATUS_PAGES.get(slug, status_page())
 
 
 class _OfflineMailClient:

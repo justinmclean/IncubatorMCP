@@ -36,7 +36,7 @@ HEALTH_DATA_MAX_AGE_DAYS = 31
 ISO_DATE_RE = re.compile(r"\b(\d{4}-\d{2}-\d{2})\b")
 # The podling's own answer to "When were the last committers or PPMC members
 # elected?", up to the next heading.
-ELECTIONS_ANSWER_RE = re.compile(
+NEW_MEMBERS_ANSWER_RE = re.compile(
     r"when were the last committers or ppmc members elected\??(.*?)(?=^\s*#|\Z)",
     re.IGNORECASE | re.DOTALL | re.MULTILINE,
 )
@@ -52,20 +52,20 @@ MONTH_NUMBERS = {
         ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"], start=1
     )
 }
-NO_ELECTION_RE = re.compile(
+NONE_ADDED_RE = re.compile(
     r"\b(?:founding|at founding|initial|accepted into|entered (?:the )?incubat|n/?a|none|not yet"
     r"|no new|have not elected|haven't elected|not elected)\b",
     re.IGNORECASE,
 )
-# An answer that reports an election without dating it: "The vote to add
+# An answer that reports someone added without dating it: "The vote to add
 # Foo as a committer has passed".
-UNDATED_ELECTION_RE = re.compile(
+UNDATED_ADDITION_RE = re.compile(
     r"\bvot(?:e|ed|ing)\b.{0,80}?\bpassed\b|\b(?:were|was|been) (?:elected|voted in|invited)\b",
     re.IGNORECASE | re.DOTALL,
 )
-# A podling this long in incubation should have elected someone recently.
-ELECTION_EXPECTED_AFTER_MONTHS = 6
-RECENT_ELECTION_MAX_DAYS = 365
+# A podling this long in incubation should have added someone recently.
+NEW_MEMBER_EXPECTED_AFTER_MONTHS = 6
+RECENT_NEW_MEMBER_MAX_DAYS = 365
 
 
 def severity_value(value: str) -> int:
@@ -104,7 +104,7 @@ def reconcile_trajectory_and_readiness(trend: str, assessment: str) -> str | Non
     consumers from reading two unqualified headline strings as a contradiction.
     """
 
-    if trend == "worsening" and assessment in {"ready", "near_ready"}:
+    if trend == "worsening" and assessment == "needs_ipmc_review":
         return (
             "Trajectory and readiness point in different directions. Readiness reflects overall "
             "levels, which remain strong, while the trend reflects a recent decline in at least one "
@@ -891,37 +891,66 @@ def _dates_in(text: str) -> list[date]:
     return found
 
 
-def last_election(record: OversightRecord) -> tuple[str, date | None]:
-    """What the podling's latest report says about its last election.
+def last_member_added(record: OversightRecord) -> tuple[str, date | None]:
+    """What the podling's reports say about the last committer or PPMC member added.
 
-    Returns ("date", when) for an election after the podling started,
-    ("none", None) when the answer says nobody has been elected since the
-    start, or ("unknown", None) when there is no answer to read.
+    Returns ("date", when) for the latest addition after the podling started
+    that any report dates, ("undated", None) when the latest answer reports
+    an addition without a date, ("none", None) when it says nobody has been
+    added since the start, or ("unknown", None) when there is no answer to
+    read.
     """
     reference = _reference_date(record)
     start = parse_iso_date(str(record.podling.get("startdate") or ""))
-    reports = [
-        entry
-        for entry in record.incubator_reports
-        if (parse_iso_date(str(entry.get("report_id") or "")[-10:]) or reference) <= reference
-    ]
+    reports = sorted(
+        (
+            entry
+            for entry in record.incubator_reports
+            if (parse_iso_date(str(entry.get("report_id") or "")[-10:]) or reference) <= reference
+        ),
+        key=lambda entry: str(entry.get("report_id") or ""),
+    )
     if not reports:
         return "unknown", None
-    latest = max(reports, key=lambda entry: str(entry.get("report_id") or ""))
-    match = ELECTIONS_ANSWER_RE.search(str(latest.get("body") or ""))
-    if match is None or not match.group(1).strip():
-        return "unknown", None
-    answer = match.group(1)
+    answers = []
+    for entry in reports:
+        match = NEW_MEMBERS_ANSWER_RE.search(str(entry.get("body") or ""))
+        answers.append(match.group(1) if match is not None and match.group(1).strip() else None)
     after_start = [
-        found for found in _dates_in(answer) if found <= reference and (start is None or (found - start).days > 31)
+        found
+        for answer in answers
+        if answer is not None
+        for found in _dates_in(answer)
+        if found <= reference and (start is None or (found - start).days > 31)
     ]
     if after_start:
         return "date", max(after_start)
-    if UNDATED_ELECTION_RE.search(answer):
+    answer = answers[-1]
+    if answer is None:
         return "unknown", None
-    if _dates_in(answer) or NO_ELECTION_RE.search(answer):
+    if UNDATED_ADDITION_RE.search(answer):
+        return "undated", None
+    if _dates_in(answer) or NONE_ADDED_RE.search(answer):
         return "none", None
     return "unknown", None
+
+
+STATUS_NEW_MEMBER_RE = re.compile(r"\bnew\s+(?:committers?|p?pmc(?:\s+members?)?)\b", re.IGNORECASE)
+
+
+def status_page_new_member(record: OversightRecord) -> date | None:
+    """The latest new committer or PPMC member the podling status page's News lists after the start."""
+    reference = _reference_date(record)
+    start = parse_iso_date(str(record.podling.get("startdate") or ""))
+    dates = [
+        when
+        for entry in record.status_news
+        if STATUS_NEW_MEMBER_RE.search(str(entry.get("text") or ""))
+        and (when := parse_iso_date(str(entry.get("date") or ""))) is not None
+        and when <= reference
+        and (start is None or when > start)
+    ]
+    return max(dates, default=None)
 
 
 def health_data_age_days(record: OversightRecord) -> int | None:
@@ -1125,6 +1154,13 @@ def dev_mail_signals(record: OversightRecord) -> dict[str, Any] | None:
     senders: set[str] = set()
     latest_message: date | None = None
     message_count = 0
+
+    def names_release(key: str) -> bool:
+        return bool(RELEASE_SUBJECT_RE.search(key)) and not NOT_A_RELEASE_RE.search(key)
+
+    def is_release_vote(key: str) -> bool:
+        return "[vote" in key and "[result" not in key and "cancel" not in key and names_release(key)
+
     for message in record.podling_dev_mail:
         when = parse_iso_date(str(message.get("date") or "")[:10])
         if when is not None and not 0 <= (reference - when).days <= 365:
@@ -1144,14 +1180,7 @@ def dev_mail_signals(record: OversightRecord) -> dict[str, Any] | None:
         if key not in threads or (when is not None and (threads[key] is None or when > threads[key])):  # type: ignore[operator]
             threads[key] = when
 
-    def names_release(key: str) -> bool:
-        return bool(RELEASE_SUBJECT_RE.search(key)) and not NOT_A_RELEASE_RE.search(key)
-
-    release_votes = [
-        (k, d)
-        for k, d in threads.items()
-        if "[vote" in k and "[result" not in k and "cancel" not in k and names_release(k)
-    ]
+    release_votes = [(k, d) for k, d in threads.items() if is_release_vote(k)]
     closed_cores = {
         _thread_core(k) for k in threads if "[result" in k or "[cancel" in k or "cancelled" in k or "canceled" in k
     }
@@ -1178,6 +1207,219 @@ def dev_mail_signals(record: OversightRecord) -> dict[str, Any] | None:
         "retirement_threads_12m": sorted(k for k in threads if "retir" in k),
         "graduation_threads_12m": sorted(k for k in threads if "graduat" in k),
     }
+
+
+# The Incubator graduation guide (https://incubator.apache.org/guides/graduation.html)
+# is the list of what graduation needs. Readiness reports each item with what
+# the sources show; it never decides that a podling is ready, because several
+# items can only be judged by a person. The status file's tasks are not
+# listed: they are setup tasks every podling does early, and the file is often
+# out of date.
+GRADUATION_GUIDE_URL = "https://incubator.apache.org/guides/graduation.html"
+ISSUES_ANSWER_RE = re.compile(
+    r"are there any issues that the ipmc or asf board need to be aware of\??(.*?)(?=^\s*#|\Z)",
+    re.IGNORECASE | re.DOTALL | re.MULTILINE,
+)
+
+
+def latest_issues_answer(record: OversightRecord) -> str | None:
+    """The latest report's answer to "Are there any issues that the IPMC or ASF Board need to be aware of?"."""
+    reference = _reference_date(record)
+    reports = sorted(
+        (
+            entry
+            for entry in record.incubator_reports
+            if (parse_iso_date(str(entry.get("report_id") or "")[-10:]) or reference) <= reference
+        ),
+        key=lambda entry: str(entry.get("report_id") or ""),
+    )
+    for entry in reversed(reports):
+        match = ISSUES_ANSWER_RE.search(str(entry.get("body") or ""))
+        if match is not None and match.group(1).strip():
+            return re.sub(r"\s+", " ", match.group(1)).strip()
+    return None
+
+
+def _guide_item(item: str, status: str, evidence: str) -> dict[str, str]:
+    return {"item": item, "status": status, "evidence": evidence}
+
+
+def name_search_status(record: OversightRecord) -> tuple[str, str]:
+    """Whether the mandatory podling name search is resolved, with the evidence."""
+    resolved = [
+        issue
+        for issue in record.name_searches
+        if str(issue.get("status") or "").casefold() in {"resolved", "closed"}
+        and str(issue.get("resolution") or "").casefold() == "fixed"
+    ]
+    if resolved:
+        issue = resolved[0]
+        return (
+            "met",
+            f"{issue.get('key')} resolved as fixed{' on ' + issue['resolved'] if issue.get('resolved') else ''}.",
+        )
+    if not record.name_search_loaded:
+        return "unknown", record.name_search_error or "PODLINGNAMESEARCH was not read for this view."
+    if record.name_searches:
+        keys = ", ".join(str(issue.get("key")) for issue in record.name_searches)
+        return "not_met", f"{keys} is not resolved as fixed."
+    return "not_met", "No PODLINGNAMESEARCH issue names the podling."
+
+
+def graduation_guide_items(
+    record: OversightRecord,
+    *,
+    release_maturity: str,
+    added_kind: str,
+    latest_added: date | None,
+    signals: dict[str, Any] | None,
+    dev_signals: dict[str, Any] | None,
+    signoffs: float,
+) -> list[dict[str, str]]:
+    """Each graduation guide item with its status: met, not_met, unknown or needs_person."""
+    metrics = record.preferred_metrics or {}
+    window = record.preferred_window or "preferred"
+    items = []
+
+    name_status, name_evidence = name_search_status(record)
+    items.append(
+        _guide_item("Suitable project and product names (the naming process is mandatory)", name_status, name_evidence)
+    )
+
+    release_result = (signals or {}).get("latest_ipmc_release_result")
+    # As for release_maturity, general@ only counts when mail about the podling was found.
+    general_read = signals is not None and bool(record.incubator_general_mail)
+    if general_read and signals is not None and signals.get("ipmc_release_result_in_12m"):
+        release = ("met", f"Latest IPMC release result on general@: {release_result}.")
+    elif release_maturity == "weak" or general_read:
+        release = (
+            "not_met",
+            "No IPMC release result on general@ in the last 12 months"
+            + (f"; the latest is from {release_result}." if release_result else "."),
+        )
+    else:
+        release = (
+            "unknown",
+            "No general@ mail about the podling was read; the health report alone cannot show an IPMC-approved "
+            "release.",
+        )
+    items.append(_guide_item("Ability to create Apache releases", *release))
+    items.append(
+        _guide_item(
+            "Knows how to remove links to old releases from its website",
+            "needs_person",
+            "Not read here; release_artifact_evidence with the download page checks shows the links.",
+        )
+    )
+
+    if latest_added is not None:
+        items.append(
+            _guide_item(
+                "Recruits committers and PMC members",
+                "met",
+                f"Latest committer or PPMC member added: {latest_added.isoformat()}.",
+            )
+        )
+    elif added_kind == "undated":
+        items.append(
+            _guide_item(
+                "Recruits committers and PMC members",
+                "met",
+                "The latest report says someone was added, without a date.",
+            )
+        )
+    else:
+        items.append(
+            _guide_item(
+                "Recruits committers and PMC members",
+                "not_met",
+                "The latest report says nobody has been added since the start."
+                if added_kind == "none"
+                else "No report, status page News or dev@ announcement shows anyone added since the start.",
+            )
+        )
+
+    new_contributors = metrics.get("new_contributors")
+    items.append(
+        _guide_item(
+            "Recruits users and developers",
+            "unknown" if not isinstance(new_contributors, int | float) else "needs_person",
+            f"{new_contributors} new contributors and {metrics.get('dev_unique_posters')} dev@ posters in the "
+            f"{window} health window."
+            if isinstance(new_contributors, int | float)
+            else "The health report has no new contributor count.",
+        )
+    )
+
+    bus50 = metrics.get("bus50")
+    if isinstance(bus50, int | float):
+        items.append(
+            _guide_item(
+                "Not highly dependent on any single contributor",
+                "not_met" if bus50 <= 1 else "needs_person",
+                f"{int(bus50)} contributor(s) made half the commits in the {window} health window.",
+            )
+        )
+    else:
+        items.append(
+            _guide_item(
+                "Not highly dependent on any single contributor",
+                "unknown",
+                "The health report has no bus factor proxy.",
+            )
+        )
+    items.append(
+        _guide_item(
+            "At least three legally independent committers, and no single company or entity vital to the project",
+            "needs_person",
+            "No source records committer affiliations.",
+        )
+    )
+    items.append(
+        _guide_item(
+            "Takes responsible collective action, disagrees in public without harm, keeps the lists open and inclusive",
+            "needs_person",
+            (
+                f"dev@ in the last 12 months: {dev_signals['message_count_12m']} messages from "
+                f"{dev_signals['unique_senders_12m']} senders."
+            )
+            if dev_signals is not None
+            else "dev@ was not read.",
+        )
+    )
+
+    issues = latest_issues_answer(record)
+    items.append(
+        _guide_item(
+            "Mentors and IPMC have no remaining issues",
+            "needs_person",
+            (f"Latest report, issues for the IPMC or Board: {issues[:300]}" if issues else "No report answer found.")
+            + f" Average mentor sign-offs: {signoffs:g}.",
+        )
+    )
+    items.append(
+        _guide_item(
+            "Destination decided, and a charter and resolution prepared",
+            "needs_person",
+            "Not in any source read here.",
+        )
+    )
+    graduation_threads = sorted(
+        {
+            *((signals or {}).get("graduation_threads_12m") or []),
+            *((dev_signals or {}).get("graduation_threads_12m") or []),
+        }
+    )
+    items.append(
+        _guide_item(
+            "Community graduation vote (recommended, not required)",
+            "met" if graduation_threads else "unknown",
+            f"Graduation threads: {'; '.join(graduation_threads)}."
+            if graduation_threads
+            else "No graduation thread found.",
+        )
+    )
+    return items
 
 
 def readiness_assessment(record: OversightRecord, strict_mode: bool = False) -> dict[str, Any]:
@@ -1223,35 +1465,51 @@ def readiness_assessment(record: OversightRecord, strict_mode: bool = False) -> 
     )
     dev_signals = dev_mail_signals(record)
     mail_notes: list[str] = []
-    # Commit activity alone does not show independence. A podling that has
-    # added no committer or PPMC member since it started is weak however
-    # active it is; one that has added nobody in the last year is a step
-    # lower. A new committer or PPMC member announced on dev@ in the last
-    # year counts even when the latest report does not mention it yet.
-    election_kind, election_date = last_election(record)
+    # Commit activity alone does not show independence. Graduation needs
+    # positive evidence that the podling has added a committer or PPMC member
+    # since it started: a date in any report's answer, a new committer or
+    # PPMC member in the status page News, or an announcement on dev@.
+    # Missing evidence is not evidence, whatever the podling's age. A podling
+    # that has been incubating a while and has added nobody in the last year
+    # is a step lower.
+    added_kind, added_date = last_member_added(record)
     dev_new_member = parse_iso_date((dev_signals or {}).get("latest_new_member_announcement"))
-    long_enough = (months or 0) >= ELECTION_EXPECTED_AFTER_MONTHS
-    none_since_start = long_enough and election_kind == "none"
-    none_recently = (
-        long_enough
-        and election_date is not None
-        and (_reference_date(record) - election_date).days > RECENT_ELECTION_MAX_DAYS
+    status_new_member = status_page_new_member(record)
+    latest_added = max(
+        (when for when in (added_date, dev_new_member, status_new_member) if when is not None), default=None
     )
-    if (none_since_start or none_recently) and dev_new_member is not None:
-        mail_notes.append(f"dev@ announces a new committer or PPMC member on {dev_new_member.isoformat()}.")
-    elif none_since_start:
-        community_independence = "weak"
-        missing_evidence.append(
-            "A committer or PPMC member added from the community since the podling started "
-            "(the latest report shows none)."
-        )
-    elif none_recently:
+    added_member = latest_added is not None or added_kind == "undated"
+    long_enough = (months or 0) >= NEW_MEMBER_EXPECTED_AFTER_MONTHS
+    reference = _reference_date(record)
+    if latest_added is not None and latest_added != added_date and (added_kind == "none" or added_date is not None):
+        if latest_added == status_new_member:
+            mail_notes.append(
+                f"The status page lists a new committer or PPMC member on {status_new_member.isoformat()}."
+            )
+        else:
+            mail_notes.append(f"dev@ announces a new committer or PPMC member on {latest_added.isoformat()}.")
+    if not added_member:
+        if long_enough and added_kind == "none":
+            community_independence = "weak"
+            missing_evidence.append(
+                "A committer or PPMC member added from the community since the podling started "
+                "(the latest report shows none)."
+            )
+        else:
+            missing_evidence.append(
+                "A committer or PPMC member added from the community since the podling started "
+                "(no report, status page News or dev@ announcement shows one)."
+            )
+    elif latest_added is not None and long_enough and (reference - latest_added).days > RECENT_NEW_MEMBER_MAX_DAYS:
         community_independence = {"strong": "mixed", "mixed": "weak"}.get(
             community_independence, community_independence
         )
         missing_evidence.append(
-            "A committer or PPMC member added from the community in the last 12 months (the latest report shows none)."
+            "A committer or PPMC member added from the community in the last 12 months "
+            f"(the latest one found is from {latest_added.isoformat()})."
         )
+    if record.status_page_error:
+        missing_evidence.append(f"The podling status page could not be read: {record.status_page_error}")
     # A podling with no release in the 12m window cannot be rated ready, however active it is.
     releases_12m = release_stall_releases(record)
     if isinstance(releases_12m, int | float):
@@ -1362,10 +1620,10 @@ def readiness_assessment(record: OversightRecord, strict_mode: bool = False) -> 
     ready_threshold = 4 if strict_mode else 3
 
     if strong_count >= ready_threshold and weak_count == 0:
-        assessment = "ready"
+        assessment = "strong_levels"
         summary = "The podling shows strong readiness signals across community, governance, and delivery."
     elif strong_count >= 2 and weak_count <= 1:
-        assessment = "near_ready"
+        assessment = "mostly_strong"
         summary = "The podling appears close to graduation readiness but still has a small number of gaps to close."
     elif weak_count >= 3:
         assessment = "at_risk"
@@ -1376,35 +1634,70 @@ def readiness_assessment(record: OversightRecord, strict_mode: bool = False) -> 
         assessment = "not_yet_ready"
         summary = "The podling is progressing, but the evidence is not yet strong enough for graduation readiness."
 
-    if retirement_lists and assessment in {"ready", "near_ready"}:
+    guide = graduation_guide_items(
+        record,
+        release_maturity=release_maturity,
+        added_kind=added_kind,
+        latest_added=latest_added,
+        signals=signals,
+        dev_signals=dev_signals,
+        signoffs=signoffs,
+    )
+    name_status, _ = name_search_status(record)
+    for entry in guide:
+        # The community graduation vote is recommended, not required.
+        if entry["status"] in {"not_met", "unknown"} and not entry["item"].startswith("Community graduation vote"):
+            missing_evidence.append(f"{entry['item']}: {entry['evidence']}")
+
+    # Every reason the podling is not ready goes in the summary, not just the first one found.
+    reasons = []
+    if retirement_lists:
+        reasons.append(f"a retirement discussion about the podling is on {retirement_where}")
+    if signals is not None and signals["status_threads_12m"]:
+        reasons.append("a status discussion about the podling is on general@")
+    reasons.extend(
+        f"{entry['item'].split(' (')[0]}: {entry['evidence'].rstrip('.')}"
+        for entry in guide
+        if entry["status"] == "not_met"
+    )
+    reasons.extend(f"{label.replace('_', ' ')} is weak" for label, value in dimensions.items() if value == "weak")
+    # Graduation requirements shown not to be met hold the verdict at not yet ready.
+    required = ("Suitable project and product names", "Ability to create Apache releases", "Recruits committers")
+    hard_block = bool(retirement_lists) or any(
+        entry["status"] == "not_met" and entry["item"].startswith(required) for entry in guide
+    )
+    if hard_block and assessment in {"strong_levels", "mostly_strong"}:
         assessment = "not_yet_ready"
-        summary = (
-            f"A retirement discussion about the podling is open on {retirement_where}, so it cannot be rated near"
-            " graduation."
-        )
-    elif release_maturity == "weak" and assessment in {"ready", "near_ready"}:
+    if strict_mode and assessment == "mostly_strong":
         assessment = "not_yet_ready"
+        reasons.append("in strict mode, fewer than four readiness dimensions are strong")
+    # The tool never decides that a podling is ready: several graduation guide
+    # items can only be judged by a person. With no blocker shown, the verdict
+    # is that the podling needs the IPMC's review.
+    if assessment in {"strong_levels", "mostly_strong"}:
+        assessment = "needs_ipmc_review"
         summary = (
-            "There is no IPMC-approved release in the last 12 months, which graduation requires, "
-            "so the podling is not yet ready whatever the other dimensions show."
+            "No graduation blocker was found in the sources. Whether the podling is ready is for its mentors and "
+            "the IPMC to judge: graduation_guide lists the items only a person can check and any the sources "
+            "could not settle."
         )
-    elif none_since_start and dev_new_member is None and assessment in {"ready", "near_ready"}:
-        assessment = "not_yet_ready"
-        summary = (
-            "The podling has added no committer or PPMC member since it started, which graduation requires, "
-            "so it is not yet ready whatever the other dimensions show."
-        )
-    elif freshness["stale_sources"] and assessment == "ready":
-        assessment = "near_ready"
-        summary = (
-            "The metrics read as ready, but at least one source is older than "
-            f"{STALE_SOURCE_DAYS} days, so the view is held at near ready until it is refreshed."
-        )
+        if reasons:
+            summary += " Still to look at: " + "; ".join(reasons) + "."
+        if freshness["stale_sources"]:
+            summary += f" At least one source is older than {STALE_SOURCE_DAYS} days."
+    elif assessment in {"not_yet_ready", "at_risk"}:
+        mixed = [label.replace("_", " ") for label, value in dimensions.items() if value == "mixed"]
+        if not reasons and mixed:
+            reasons.append(f"{', '.join(mixed)} {'is' if len(mixed) == 1 else 'are'} only mixed")
+        label = "Not yet ready" if assessment == "not_yet_ready" else "At risk"
+        summary = f"{label}: " + "; ".join(reasons) + "." if reasons else summary
     summary = " ".join([summary, *mail_notes]) if mail_notes else summary
 
     next_steps = []
-    if assessment in {"near_ready", "ready"}:
-        next_steps.append("Review the podling with mentors to confirm whether a graduation plan is timely.")
+    if assessment == "needs_ipmc_review":
+        next_steps.append(
+            "Review the graduation guide items with the mentors, starting with those a person must check."
+        )
     if general_open_votes:
         next_steps.append("Follow the open release vote on general@ through to a [RESULT].")
     elif dev_open_votes:
@@ -1424,6 +1717,8 @@ def readiness_assessment(record: OversightRecord, strict_mode: bool = False) -> 
         next_steps.append("Increase mentor engagement and report sign-off consistency.")
     if reports_count < 1:
         next_steps.append("Ensure the podling is reporting reliably to the Incubator.")
+    if name_status == "not_met":
+        next_steps.append("Help the podling complete its PODLINGNAMESEARCH name search.")
     if not next_steps:
         next_steps.append("Ask the mentors which readiness gaps the podling should work on first.")
 
@@ -1438,6 +1733,8 @@ def readiness_assessment(record: OversightRecord, strict_mode: bool = False) -> 
         "mail_signals": signals,
         "dev_mail_signals": dev_signals,
         "source_freshness": freshness,
+        "graduation_guide": guide,
+        "graduation_guide_source": GRADUATION_GUIDE_URL,
     }
 
 

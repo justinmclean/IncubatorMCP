@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from datetime import date
 
 from ipmc.analysis import (
     Signal,
@@ -8,12 +9,14 @@ from ipmc.analysis import (
     confidence_for_record,
     cross_source_mismatches,
     evaluate_record,
+    last_member_added,
     readiness_assessment,
     reconcile_trajectory_and_readiness,
     report_narrative_signals,
     reporting_reliability_pattern,
     severity_at_least,
     severity_value,
+    status_page_new_member,
     trend_from_metrics,
 )
 from ipmc.data import OversightRecord
@@ -29,6 +32,7 @@ def make_record(
     as_of_date: str | None = "2026-04-18",
     incubator_reports: list[dict] | None = None,
     incubator_general_mail: list[dict] | None = None,
+    status_news: list[dict] | None = None,
 ) -> OversightRecord:
     latest_metrics = {"3m": metrics}
     if twelve_month_metrics is not None:
@@ -48,7 +52,21 @@ def make_record(
         as_of_date=as_of_date,
         incubator_reports=incubator_reports or [],
         incubator_general_mail=incubator_general_mail or [],
+        status_news=status_news or [],
     )
+
+
+# Status page News showing a committer added within a year of make_record's reference date.
+NEW_COMMITTER_NEWS = [{"date": "2025-06-01", "text": "New committer: Erin Example."}]
+
+
+def meets_graduation_checks(record: OversightRecord) -> OversightRecord:
+    """Give a record the evidence every graduation guide check looks for, so only the metrics decide."""
+    record.name_searches = [{"key": "PODLINGNAMESEARCH-1", "status": "Resolved", "resolution": "Fixed"}]
+    record.name_search_loaded = True
+    if record.preferred_metrics is not None:
+        record.preferred_metrics = {**record.preferred_metrics, "bus50": 3}
+    return record
 
 
 class AnalysisTests(unittest.TestCase):
@@ -491,10 +509,11 @@ class AnalysisTests(unittest.TestCase):
                     "releases": 1,
                     "reports_count": 1,
                     "avg_mentor_signoffs": 2.0,
-                }
+                },
+                status_news=NEW_COMMITTER_NEWS,
             )
         )
-        self.assertIn(near_ready["assessment"], {"near_ready", "ready"})
+        self.assertEqual(near_ready["assessment"], "needs_ipmc_review")
 
         at_risk = readiness_assessment(
             make_record(
@@ -631,28 +650,37 @@ class AnalysisTests(unittest.TestCase):
         self.assertEqual(result["assessment"], "not_yet_ready")
         self.assertEqual(result["mail_signals"]["retirement_threads_12m"], ["[discuss] retiring apache example?"])
 
-    def test_stale_sources_are_flagged_and_hold_ready_at_near_ready(self) -> None:
+    def test_stale_sources_are_flagged_in_the_review_verdict(self) -> None:
         metrics = self._ready_metrics()
         mail = [{"subject": "[RESULT][VOTE] Release Apache Example 1.0.0", "date": "2026-03-01 00:00:00 UTC"}]
-        fresh = make_record(metrics=metrics, twelve_month_metrics=metrics, incubator_general_mail=mail)
+        fresh = meets_graduation_checks(
+            make_record(
+                metrics=metrics,
+                twelve_month_metrics=metrics,
+                incubator_general_mail=mail,
+                status_news=NEW_COMMITTER_NEWS,
+            )
+        )
         fresh.report_summary["generated_on"] = "2026-04-10"  # type: ignore[index]
         fresh_result = readiness_assessment(fresh)
         self.assertEqual(fresh_result["source_freshness"]["health_report_age_days"], 8)
         self.assertEqual(fresh_result["source_freshness"]["general_mail_age_days"], 0)
         self.assertEqual(fresh_result["source_freshness"]["stale_sources"], [])
-        self.assertEqual(fresh_result["assessment"], "ready")
+        self.assertEqual(fresh_result["assessment"], "needs_ipmc_review")
 
         stale = make_record(
             metrics=metrics,
             twelve_month_metrics=metrics,
             incubator_reports=[{"report_period": "2026-02"}],
             incubator_general_mail=[mail[0] | {"cached_at": "2026-03-02T00:00:00Z"}],
+            status_news=NEW_COMMITTER_NEWS,
         )
         stale.report_summary["generated_on"] = "2026-02-01"  # type: ignore[index]
         stale_result = readiness_assessment(stale)
         self.assertEqual(stale_result["source_freshness"]["stale_sources"], ["health_report", "general_mail"])
         self.assertEqual(stale_result["source_freshness"]["general_mail_age_days"], 47)
-        self.assertEqual(stale_result["assessment"], "near_ready")
+        self.assertEqual(stale_result["assessment"], "needs_ipmc_review")
+        self.assertIn("older than 14 days", stale_result["summary"])
         self.assertEqual(sum("76 days old" in item for item in stale_result["missing_evidence"]), 1)
         self.assertEqual(confidence_for_record(stale), "medium")
 
@@ -668,13 +696,17 @@ class AnalysisTests(unittest.TestCase):
         no_release = readiness_assessment(make_record(metrics=active, twelve_month_metrics=active))
         self.assertEqual(no_release["dimension_scores"]["release_maturity"], "weak")
         self.assertEqual(no_release["assessment"], "not_yet_ready")
-        self.assertIn("no IPMC-approved release", no_release["summary"])
+        self.assertIn("No IPMC release result on general@", no_release["summary"])
 
         released_earlier_in_year = readiness_assessment(
-            make_record(metrics=active, twelve_month_metrics={**active, "releases": 1})
+            meets_graduation_checks(
+                make_record(
+                    metrics=active, twelve_month_metrics={**active, "releases": 1}, status_news=NEW_COMMITTER_NEWS
+                )
+            )
         )
         self.assertEqual(released_earlier_in_year["dimension_scores"]["release_maturity"], "strong")
-        self.assertEqual(released_earlier_in_year["assessment"], "ready")
+        self.assertEqual(released_earlier_in_year["assessment"], "needs_ipmc_review")
 
     def test_community_pattern_paths(self) -> None:
         self.assertEqual(community_pattern(make_record(metrics=None)), "missing_health_data")
@@ -827,12 +859,9 @@ class AnalysisTests(unittest.TestCase):
 
 class ReconcileTrajectoryAndReadinessTests(unittest.TestCase):
     def test_strong_levels_with_worsening_trend_is_explained(self) -> None:
-        note = reconcile_trajectory_and_readiness("worsening", "ready")
+        note = reconcile_trajectory_and_readiness("worsening", "needs_ipmc_review")
         assert note is not None
         self.assertIn("strong but softening", note)
-
-    def test_near_ready_with_worsening_trend_is_explained(self) -> None:
-        self.assertIsNotNone(reconcile_trajectory_and_readiness("worsening", "near_ready"))
 
     def test_weak_levels_with_improving_trend_is_explained(self) -> None:
         note = reconcile_trajectory_and_readiness("improving", "at_risk")
@@ -840,11 +869,11 @@ class ReconcileTrajectoryAndReadinessTests(unittest.TestCase):
         self.assertIn("improving from a low base", note)
 
     def test_agreeing_signals_return_no_note(self) -> None:
-        self.assertIsNone(reconcile_trajectory_and_readiness("improving", "ready"))
+        self.assertIsNone(reconcile_trajectory_and_readiness("improving", "needs_ipmc_review"))
         self.assertIsNone(reconcile_trajectory_and_readiness("worsening", "at_risk"))
 
     def test_unknown_trend_returns_no_note(self) -> None:
-        self.assertIsNone(reconcile_trajectory_and_readiness("unknown", "ready"))
+        self.assertIsNone(reconcile_trajectory_and_readiness("unknown", "needs_ipmc_review"))
         self.assertIsNone(reconcile_trajectory_and_readiness("stable", "at_risk"))
 
 
@@ -880,8 +909,10 @@ class ReadinessStatusAndReleaseAgeTests(unittest.TestCase):
     def test_graduated_podling_is_scored_as_of_a_date_before_it_ended(self) -> None:
         record = strong_record(generated_on="2026-06-01", last_release="2026-03-02", as_of_date="2026-06-01")
         record.podling.update({"status": "graduated", "enddate": "2026-07-16"})
+        record.status_news = [{"date": "2026-02-01", "text": "New PPMC member: Erin Example."}]
+        meets_graduation_checks(record)
 
-        self.assertEqual(readiness_assessment(record)["assessment"], "ready")
+        self.assertEqual(readiness_assessment(record)["assessment"], "needs_ipmc_review")
 
     def test_stale_health_window_does_not_credit_an_old_stated_release(self) -> None:
         # Health data from 2026-09-06 counts a 2025-09-11 release in its 12m
@@ -891,7 +922,7 @@ class ReadinessStatusAndReleaseAgeTests(unittest.TestCase):
         result = readiness_assessment(record)
 
         self.assertEqual(result["dimension_scores"]["release_maturity"], "weak")
-        self.assertNotEqual(result["assessment"], "ready")
+        self.assertNotEqual(result["assessment"], "needs_ipmc_review")
         self.assertTrue(any("62 days old" in item for item in result["missing_evidence"]))
 
     def test_fresh_health_window_credits_a_release_newer_than_the_report(self) -> None:
@@ -905,7 +936,7 @@ class ReadinessStatusAndReleaseAgeTests(unittest.TestCase):
         self.assertEqual(readiness_assessment(record)["dimension_scores"]["release_maturity"], "strong")
 
 
-def election_record(answer: str) -> OversightRecord:
+def added_record(answer: str) -> OversightRecord:
     record = strong_record(generated_on="2026-11-01", last_release="2026-08-25")
     record.incubator_reports = [
         {
@@ -919,34 +950,87 @@ def election_record(answer: str) -> OversightRecord:
     return record
 
 
-class CommunityElectionTests(unittest.TestCase):
+class CommunityNewMemberTests(unittest.TestCase):
     def test_no_one_added_since_start_is_weak_community_independence(self) -> None:
         for answer in ("At founding", "N/A", "2024-01-01, when the podling was accepted"):
             with self.subTest(answer=answer):
-                result = readiness_assessment(election_record(answer))
+                result = readiness_assessment(added_record(answer))
                 self.assertEqual(result["dimension_scores"]["community_independence"], "weak")
                 self.assertTrue(any("since the podling started" in item for item in result["missing_evidence"]))
 
     def test_no_one_added_since_start_caps_the_verdict(self) -> None:
-        result = readiness_assessment(election_record("At founding"))
+        result = readiness_assessment(added_record("At founding"))
         self.assertEqual(result["assessment"], "not_yet_ready")
-        self.assertIn("added no committer or PPMC member since it started", result["summary"])
+        self.assertIn("The latest report says nobody has been added since the start", result["summary"])
 
-    def test_recent_election_keeps_community_independence(self) -> None:
+    def test_recent_addition_keeps_community_independence(self) -> None:
         for answer in ("2026-07-24", "March 24, 2026 - three new committers", "Rose Duan, 19th Jan 2026"):
             with self.subTest(answer=answer):
-                result = readiness_assessment(election_record(answer))
+                result = readiness_assessment(added_record(answer))
                 self.assertEqual(result["dimension_scores"]["community_independence"], "strong")
 
-    def test_old_election_lowers_community_independence(self) -> None:
-        result = readiness_assessment(election_record("2025-02-01"))
+    def test_old_addition_lowers_community_independence(self) -> None:
+        result = readiness_assessment(added_record("2025-02-01"))
         self.assertEqual(result["dimension_scores"]["community_independence"], "mixed")
         self.assertTrue(any("in the last 12 months" in item for item in result["missing_evidence"]))
 
-    def test_undated_election_is_not_counted_as_none(self) -> None:
+    def test_undated_addition_is_not_counted_as_none(self) -> None:
         answer = "None so far. The vote to add Foo as a committer and PPMC member has passed."
-        result = readiness_assessment(election_record(answer))
+        result = readiness_assessment(meets_graduation_checks(added_record(answer)))
         self.assertEqual(result["dimension_scores"]["community_independence"], "strong")
+        self.assertEqual(result["assessment"], "needs_ipmc_review")
+
+    def test_no_evidence_of_anyone_added_is_not_ready_however_young(self) -> None:
+        # A two-month-old podling with strong metrics and releases but no
+        # report, status page News or dev@ announcement showing anyone added.
+        record = strong_record(generated_on="2026-11-01", last_release="2026-10-30")
+        record.podling["startdate"] = "2026-08-13"
+        record.incubator_reports = []
+        result = readiness_assessment(record)
+        self.assertEqual(result["assessment"], "not_yet_ready")
+        self.assertIn("No report, status page News or dev@ announcement shows anyone added", result["summary"])
+        self.assertTrue(any("status page News" in item for item in result["missing_evidence"]))
+
+    def test_status_page_news_counts_as_an_addition(self) -> None:
+        record = added_record("At founding")
+        record.status_news = [
+            {"date": "2026-09-30", "text": "New PPMC member: Jane Doe."},
+            {"date": "2026-10-05", "text": "Release 1.0.0."},
+        ]
+        result = readiness_assessment(record)
+        self.assertEqual(result["dimension_scores"]["community_independence"], "strong")
+        self.assertNotEqual(result["assessment"], "not_yet_ready")
+        self.assertIn("The status page lists a new committer or PPMC member on 2026-09-30.", result["summary"])
+
+    def test_status_page_entries_before_the_start_do_not_count(self) -> None:
+        record = strong_record(generated_on="2026-11-01", last_release="2026-08-25")
+        record.status_news = [{"date": "2023-12-01", "text": "New committer: Early Bird."}]
+        self.assertIsNone(status_page_new_member(record))
+
+    def test_an_earlier_report_dating_an_addition_counts(self) -> None:
+        record = added_record("No new committers this quarter.")
+        record.incubator_reports.insert(
+            0,
+            {
+                "report_id": "board-minutes-2026-05-20",
+                "body": "### When were the last committers or PPMC members elected?\n\n2026-04-02\n",
+            },
+        )
+        self.assertEqual(last_member_added(record), ("date", date(2026, 4, 2)))
+        self.assertNotEqual(readiness_assessment(record)["assessment"], "not_yet_ready")
+
+    def test_old_status_page_addition_lowers_community_independence(self) -> None:
+        record = strong_record(generated_on="2026-11-01", last_release="2026-08-25")
+        record.status_news = [{"date": "2025-03-01", "text": "New Committer: Old Hand."}]
+        result = readiness_assessment(record)
+        self.assertEqual(result["dimension_scores"]["community_independence"], "mixed")
+        self.assertTrue(any("latest one found is from 2025-03-01" in item for item in result["missing_evidence"]))
+
+    def test_unreadable_status_page_is_listed_as_missing_evidence(self) -> None:
+        record = added_record("2026-07-24")
+        record.status_page_error = "Status page could not be read: timed out"
+        result = readiness_assessment(record)
+        self.assertTrue(any("timed out" in item for item in result["missing_evidence"]))
 
 
 class MailSignalSubjectTests(unittest.TestCase):
@@ -1002,8 +1086,8 @@ class DevMailSignalTests(unittest.TestCase):
     """Readiness reads the podling's own dev@ subjects when they were loaded."""
 
     def ready(self) -> OversightRecord:
-        # Ready on every dimension as of 2026-11-07, with an election in the last year.
-        return election_record("2026-07-24")
+        # Ready on every dimension as of 2026-11-07, with someone added in the last year.
+        return added_record("2026-07-24")
 
     def test_not_loaded_dev_mail_changes_nothing(self) -> None:
         result = readiness_assessment(self.ready())
@@ -1028,7 +1112,7 @@ class DevMailSignalTests(unittest.TestCase):
         self.assertEqual(result["dev_mail_signals"]["retirement_threads_12m"], ["time to retire example?"])
         self.assertEqual(result["dimension_scores"]["governance_health"], "weak")
         self.assertEqual(result["assessment"], "not_yet_ready")
-        self.assertIn("open on dev@", result["summary"])
+        self.assertIn("retirement discussion about the podling is on dev@", result["summary"])
         self.assertIn("A retirement discussion about the podling is on dev@ in the last 12 months.", result["blockers"])
         self.assertIn(
             "Settle the retirement discussion on dev@ before any graduation planning.",
@@ -1089,9 +1173,9 @@ class DevMailSignalTests(unittest.TestCase):
             "Follow the open release vote on general@ through to a [RESULT].", result["recommended_next_steps"]
         )
 
-    def test_new_member_announcement_on_dev_counts_as_a_recent_election(self) -> None:
+    def test_new_member_announcement_on_dev_counts_as_a_recent_addition(self) -> None:
         record = with_dev_mail(
-            election_record("At founding"),
+            added_record("At founding"),
             ("[ANNOUNCE] New committer: Jane Doe", "2026-09-15"),
             ("[VOTE] New committer: John Roe", "2026-10-01"),
         )
@@ -1137,3 +1221,108 @@ class DevMailSignalTests(unittest.TestCase):
         ):
             with self.subTest(subject=subject):
                 self.assertEqual(_subject_key(subject), "graduation?")
+
+
+class GraduationGuideCheckTests(unittest.TestCase):
+    """Readiness reports each graduation guide item and never says a podling is ready."""
+
+    def ready(self) -> OversightRecord:
+        return meets_graduation_checks(added_record("2026-07-24"))
+
+    def item(self, result: dict, name: str) -> dict:
+        return next(entry for entry in result["graduation_guide"] if entry["item"].startswith(name))
+
+    def test_no_blocker_needs_ipmc_review_not_ready(self) -> None:
+        result = readiness_assessment(self.ready())
+        self.assertEqual(result["assessment"], "needs_ipmc_review")
+        self.assertIn("for its mentors and the IPMC to judge", result["summary"])
+        statuses = {entry["status"] for entry in result["graduation_guide"]}
+        self.assertLessEqual(statuses, {"met", "not_met", "unknown", "needs_person"})
+        for name in (
+            "At least three legally independent committers",
+            "Takes responsible collective action",
+            "Mentors and IPMC have no remaining issues",
+            "Destination decided",
+            "Knows how to remove links to old releases",
+        ):
+            with self.subTest(item=name):
+                self.assertEqual(self.item(result, name)["status"], "needs_person")
+        self.assertEqual(self.item(result, "Suitable project and product names")["status"], "met")
+        self.assertEqual(self.item(result, "Recruits committers and PMC members")["status"], "met")
+        self.assertEqual(self.item(result, "Community graduation vote")["status"], "unknown")
+        self.assertFalse(any(item.startswith("Community graduation vote") for item in result["missing_evidence"]))
+
+    def test_unresolved_name_search_is_not_yet_ready(self) -> None:
+        record = self.ready()
+        record.name_searches = [{"key": "PODLINGNAMESEARCH-9", "status": "Open", "resolution": None}]
+        result = readiness_assessment(record)
+        self.assertEqual(result["assessment"], "not_yet_ready")
+        self.assertIn("PODLINGNAMESEARCH-9 is not resolved as fixed", result["summary"])
+        record.name_searches = []
+        result = readiness_assessment(record)
+        self.assertEqual(result["assessment"], "not_yet_ready")
+        self.assertIn("No PODLINGNAMESEARCH issue names the podling", result["summary"])
+
+    def test_unread_name_search_is_unknown_not_a_pass(self) -> None:
+        record = self.ready()
+        record.name_searches = []
+        record.name_search_loaded = False
+        record.name_search_error = "PODLINGNAMESEARCH could not be read: 503"
+        result = readiness_assessment(record)
+        self.assertEqual(self.item(result, "Suitable project and product names")["status"], "unknown")
+        self.assertTrue(any("503" in item for item in result["missing_evidence"]))
+
+    def test_one_contributor_making_half_the_commits_is_not_met(self) -> None:
+        record = self.ready()
+        record.preferred_metrics = {**(record.preferred_metrics or {}), "bus50": 1}
+        result = readiness_assessment(record)
+        self.assertEqual(self.item(result, "Not highly dependent on any single contributor")["status"], "not_met")
+        self.assertTrue(any("1 contributor(s) made half the commits" in item for item in result["missing_evidence"]))
+
+    def test_report_issues_answer_is_shown_for_the_mentors_item(self) -> None:
+        record = self.ready()
+        record.incubator_reports[-1]["body"] += (
+            "\n### Are there any issues that the IPMC or ASF Board need to be aware of?\n\nThe CI is slow.\n"
+        )
+        result = readiness_assessment(record)
+        self.assertIn("The CI is slow.", self.item(result, "Mentors and IPMC have no remaining issues")["evidence"])
+
+    def test_strict_mode_needs_four_strong_dimensions(self) -> None:
+        metrics = {
+            "commits": 20,
+            "unique_committers": 4,
+            "unique_authors": 5,
+            "releases": 1,
+            "reports_count": 1,
+            "avg_mentor_signoffs": 1.5,
+        }
+        record = meets_graduation_checks(make_record(metrics=metrics, status_news=NEW_COMMITTER_NEWS))
+        self.assertEqual(
+            sum(value == "strong" for value in readiness_assessment(record)["dimension_scores"].values()), 3
+        )
+        self.assertEqual(readiness_assessment(record)["assessment"], "needs_ipmc_review")
+        self.assertEqual(readiness_assessment(record, strict_mode=True)["assessment"], "not_yet_ready")
+
+    def test_summary_lists_every_reason(self) -> None:
+        record = with_dev_mail(self.ready(), ("Time to retire Example?", "2026-10-01"))
+        record.name_searches = []
+        record.preferred_metrics = {**(record.preferred_metrics or {}), "bus50": 1}
+        summary = readiness_assessment(record)["summary"]
+        self.assertTrue(summary.startswith("Not yet ready: "))
+        for reason in (
+            "retirement discussion about the podling is on dev@",
+            "No PODLINGNAMESEARCH issue names the podling",
+            "1 contributor(s) made half the commits",
+        ):
+            with self.subTest(reason=reason):
+                self.assertIn(reason, summary)
+
+    def test_release_without_an_ipmc_result_is_not_met(self) -> None:
+        record = self.ready()
+        record.incubator_general_mail = [
+            {"subject": "[VOTE] Release Apache Example 2.0.0 RC1", "date": "2025-01-10 00:00:00 UTC"},
+            {"subject": "[RESULT][VOTE] Release Apache Example 2.0.0", "date": "2025-01-15 00:00:00 UTC"},
+        ]
+        result = readiness_assessment(record)
+        self.assertEqual(self.item(result, "Ability to create Apache releases")["status"], "not_met")
+        self.assertEqual(result["assessment"], "not_yet_ready")
