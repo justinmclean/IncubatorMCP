@@ -454,12 +454,14 @@ number) count as release results or cancels, so a `[RESULT]` on an acceptance
 or graduation vote is not a release. Results and cancels are matched to their
 vote ignoring "Apache", "release", "vote" and outcome words such as "PASSED".
 
-`community_independence` is lowered one step when a podling more than six
-months into incubation says in its latest report that nobody has been elected
-since it started, or names no election in the last 12 months. An answer that
-reports an election without a date is not counted against it, and neither is a
-new committer or PPMC member announced on the podling's dev@ list in the last
-12 months.
+`community_independence` is `weak` when a podling more than six months into
+incubation says in its latest report that no committer or PPMC member has been
+added since it started, however active its commits are, and the verdict is
+then at most `not_yet_ready`, as it is with no release. It is lowered one step
+when the latest addition is more than 12 months old. An answer that reports an
+addition without a date is not counted against it, and neither is a new
+committer or PPMC member announced on the podling's dev@ list in the last 12
+months.
 
 For a single podling, its own dev@ list is also read live through MailMCP for
 the 12 months before `as_of_date` (or today), and returned as

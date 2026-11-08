@@ -1223,25 +1223,34 @@ def readiness_assessment(record: OversightRecord, strict_mode: bool = False) -> 
     )
     dev_signals = dev_mail_signals(record)
     mail_notes: list[str] = []
-    # Activity alone does not show independence: a podling that has elected
-    # nobody since it started, or nobody in the last year, is a step lower.
-    # A new committer or PPMC member announced on dev@ in the last year
-    # counts even when the latest report does not mention it yet.
+    # Commit activity alone does not show independence. A podling that has
+    # added no committer or PPMC member since it started is weak however
+    # active it is; one that has added nobody in the last year is a step
+    # lower. A new committer or PPMC member announced on dev@ in the last
+    # year counts even when the latest report does not mention it yet.
     election_kind, election_date = last_election(record)
     dev_new_member = parse_iso_date((dev_signals or {}).get("latest_new_member_announcement"))
-    no_recent_election = (months or 0) >= ELECTION_EXPECTED_AFTER_MONTHS and (
-        election_kind == "none"
-        or (election_date is not None and (_reference_date(record) - election_date).days > RECENT_ELECTION_MAX_DAYS)
+    long_enough = (months or 0) >= ELECTION_EXPECTED_AFTER_MONTHS
+    none_since_start = long_enough and election_kind == "none"
+    none_recently = (
+        long_enough
+        and election_date is not None
+        and (_reference_date(record) - election_date).days > RECENT_ELECTION_MAX_DAYS
     )
-    if no_recent_election and dev_new_member is not None:
+    if (none_since_start or none_recently) and dev_new_member is not None:
         mail_notes.append(f"dev@ announces a new committer or PPMC member on {dev_new_member.isoformat()}.")
-    elif no_recent_election:
+    elif none_since_start:
+        community_independence = "weak"
+        missing_evidence.append(
+            "A committer or PPMC member added from the community since the podling started "
+            "(the latest report shows none)."
+        )
+    elif none_recently:
         community_independence = {"strong": "mixed", "mixed": "weak"}.get(
             community_independence, community_independence
         )
         missing_evidence.append(
-            "A committer or PPMC member elected from the community in the last 12 months "
-            "(the latest report shows none)."
+            "A committer or PPMC member added from the community in the last 12 months (the latest report shows none)."
         )
     # A podling with no release in the 12m window cannot be rated ready, however active it is.
     releases_12m = release_stall_releases(record)
@@ -1378,6 +1387,12 @@ def readiness_assessment(record: OversightRecord, strict_mode: bool = False) -> 
         summary = (
             "There is no IPMC-approved release in the last 12 months, which graduation requires, "
             "so the podling is not yet ready whatever the other dimensions show."
+        )
+    elif none_since_start and dev_new_member is None and assessment in {"ready", "near_ready"}:
+        assessment = "not_yet_ready"
+        summary = (
+            "The podling has added no committer or PPMC member since it started, which graduation requires, "
+            "so it is not yet ready whatever the other dimensions show."
         )
     elif freshness["stale_sources"] and assessment == "ready":
         assessment = "near_ready"
