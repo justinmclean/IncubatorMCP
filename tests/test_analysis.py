@@ -65,7 +65,14 @@ def meets_graduation_checks(record: OversightRecord) -> OversightRecord:
     record.name_searches = [{"key": "PODLINGNAMESEARCH-1", "status": "Resolved", "resolution": "Fixed"}]
     record.name_search_loaded = True
     if record.preferred_metrics is not None:
-        record.preferred_metrics = {**record.preferred_metrics, "bus50": 3}
+        record.preferred_metrics = {**record.preferred_metrics, "bus50": 3, "new_contributors": 2}
+    reference = date.fromisoformat(record.as_of_date or "2026-11-07")
+    if not any("[result" in str(mail.get("subject", "")).lower() for mail in record.incubator_general_mail):
+        when = reference.replace(day=1)
+        record.incubator_general_mail = [
+            *record.incubator_general_mail,
+            {"subject": "[RESULT][VOTE] Release Apache Example 1.0.0", "date": f"{when.isoformat()} 00:00:00 UTC"},
+        ]
     return record
 
 
@@ -513,7 +520,7 @@ class AnalysisTests(unittest.TestCase):
                 status_news=NEW_COMMITTER_NEWS,
             )
         )
-        self.assertEqual(near_ready["assessment"], "needs_ipmc_review")
+        self.assertIn(near_ready["assessment"], {"near_ready", "ready"})
 
         at_risk = readiness_assessment(
             make_record(
@@ -650,7 +657,7 @@ class AnalysisTests(unittest.TestCase):
         self.assertEqual(result["assessment"], "not_yet_ready")
         self.assertEqual(result["mail_signals"]["retirement_threads_12m"], ["[discuss] retiring apache example?"])
 
-    def test_stale_sources_are_flagged_in_the_review_verdict(self) -> None:
+    def test_stale_sources_are_flagged_and_hold_ready_at_near_ready(self) -> None:
         metrics = self._ready_metrics()
         mail = [{"subject": "[RESULT][VOTE] Release Apache Example 1.0.0", "date": "2026-03-01 00:00:00 UTC"}]
         fresh = meets_graduation_checks(
@@ -666,7 +673,7 @@ class AnalysisTests(unittest.TestCase):
         self.assertEqual(fresh_result["source_freshness"]["health_report_age_days"], 8)
         self.assertEqual(fresh_result["source_freshness"]["general_mail_age_days"], 0)
         self.assertEqual(fresh_result["source_freshness"]["stale_sources"], [])
-        self.assertEqual(fresh_result["assessment"], "needs_ipmc_review")
+        self.assertEqual(fresh_result["assessment"], "ready")
 
         stale = make_record(
             metrics=metrics,
@@ -679,7 +686,7 @@ class AnalysisTests(unittest.TestCase):
         stale_result = readiness_assessment(stale)
         self.assertEqual(stale_result["source_freshness"]["stale_sources"], ["health_report", "general_mail"])
         self.assertEqual(stale_result["source_freshness"]["general_mail_age_days"], 47)
-        self.assertEqual(stale_result["assessment"], "needs_ipmc_review")
+        self.assertEqual(stale_result["assessment"], "near_ready")
         self.assertIn("older than 14 days", stale_result["summary"])
         self.assertEqual(sum("76 days old" in item for item in stale_result["missing_evidence"]), 1)
         self.assertEqual(confidence_for_record(stale), "medium")
@@ -706,7 +713,7 @@ class AnalysisTests(unittest.TestCase):
             )
         )
         self.assertEqual(released_earlier_in_year["dimension_scores"]["release_maturity"], "strong")
-        self.assertEqual(released_earlier_in_year["assessment"], "needs_ipmc_review")
+        self.assertEqual(released_earlier_in_year["assessment"], "ready")
 
     def test_community_pattern_paths(self) -> None:
         self.assertEqual(community_pattern(make_record(metrics=None)), "missing_health_data")
@@ -859,7 +866,7 @@ class AnalysisTests(unittest.TestCase):
 
 class ReconcileTrajectoryAndReadinessTests(unittest.TestCase):
     def test_strong_levels_with_worsening_trend_is_explained(self) -> None:
-        note = reconcile_trajectory_and_readiness("worsening", "needs_ipmc_review")
+        note = reconcile_trajectory_and_readiness("worsening", "ready")
         assert note is not None
         self.assertIn("strong but softening", note)
 
@@ -869,11 +876,11 @@ class ReconcileTrajectoryAndReadinessTests(unittest.TestCase):
         self.assertIn("improving from a low base", note)
 
     def test_agreeing_signals_return_no_note(self) -> None:
-        self.assertIsNone(reconcile_trajectory_and_readiness("improving", "needs_ipmc_review"))
+        self.assertIsNone(reconcile_trajectory_and_readiness("improving", "ready"))
         self.assertIsNone(reconcile_trajectory_and_readiness("worsening", "at_risk"))
 
     def test_unknown_trend_returns_no_note(self) -> None:
-        self.assertIsNone(reconcile_trajectory_and_readiness("unknown", "needs_ipmc_review"))
+        self.assertIsNone(reconcile_trajectory_and_readiness("unknown", "ready"))
         self.assertIsNone(reconcile_trajectory_and_readiness("stable", "at_risk"))
 
 
@@ -912,7 +919,7 @@ class ReadinessStatusAndReleaseAgeTests(unittest.TestCase):
         record.status_news = [{"date": "2026-02-01", "text": "New PPMC member: Erin Example."}]
         meets_graduation_checks(record)
 
-        self.assertEqual(readiness_assessment(record)["assessment"], "needs_ipmc_review")
+        self.assertEqual(readiness_assessment(record)["assessment"], "ready")
 
     def test_stale_health_window_does_not_credit_an_old_stated_release(self) -> None:
         # Health data from 2026-09-06 counts a 2025-09-11 release in its 12m
@@ -922,7 +929,7 @@ class ReadinessStatusAndReleaseAgeTests(unittest.TestCase):
         result = readiness_assessment(record)
 
         self.assertEqual(result["dimension_scores"]["release_maturity"], "weak")
-        self.assertNotEqual(result["assessment"], "needs_ipmc_review")
+        self.assertNotEqual(result["assessment"], "ready")
         self.assertTrue(any("62 days old" in item for item in result["missing_evidence"]))
 
     def test_fresh_health_window_credits_a_release_newer_than_the_report(self) -> None:
@@ -978,7 +985,7 @@ class CommunityNewMemberTests(unittest.TestCase):
         answer = "None so far. The vote to add Foo as a committer and PPMC member has passed."
         result = readiness_assessment(meets_graduation_checks(added_record(answer)))
         self.assertEqual(result["dimension_scores"]["community_independence"], "strong")
-        self.assertEqual(result["assessment"], "needs_ipmc_review")
+        self.assertEqual(result["assessment"], "ready")
 
     def test_no_evidence_of_anyone_added_is_not_ready_however_young(self) -> None:
         # A two-month-old podling with strong metrics and releases but no
@@ -1232,10 +1239,10 @@ class GraduationGuideCheckTests(unittest.TestCase):
     def item(self, result: dict, name: str) -> dict:
         return next(entry for entry in result["graduation_guide"] if entry["item"].startswith(name))
 
-    def test_no_blocker_needs_ipmc_review_not_ready(self) -> None:
+    def test_no_blocker_is_ready_with_person_items_listed(self) -> None:
         result = readiness_assessment(self.ready())
-        self.assertEqual(result["assessment"], "needs_ipmc_review")
-        self.assertIn("for its mentors and the IPMC to judge", result["summary"])
+        self.assertEqual(result["assessment"], "ready")
+        self.assertIn("only a person can check", result["summary"])
         statuses = {entry["status"] for entry in result["graduation_guide"]}
         self.assertLessEqual(statuses, {"met", "not_met", "unknown", "needs_person"})
         for name in (
@@ -1270,6 +1277,11 @@ class GraduationGuideCheckTests(unittest.TestCase):
         record.name_search_error = "PODLINGNAMESEARCH could not be read: 503"
         result = readiness_assessment(record)
         self.assertEqual(self.item(result, "Suitable project and product names")["status"], "unknown")
+        self.assertEqual(result["assessment"], "near_ready")
+        self.assertIn(
+            "Suitable project and product names is not settled: PODLINGNAMESEARCH could not be read: 503",
+            result["summary"],
+        )
         self.assertTrue(any("503" in item for item in result["missing_evidence"]))
 
     def test_one_contributor_making_half_the_commits_is_not_met(self) -> None:
@@ -1287,7 +1299,7 @@ class GraduationGuideCheckTests(unittest.TestCase):
         result = readiness_assessment(record)
         self.assertIn("The CI is slow.", self.item(result, "Mentors and IPMC have no remaining issues")["evidence"])
 
-    def test_strict_mode_needs_four_strong_dimensions(self) -> None:
+    def test_strict_mode_needs_four_strong_dimensions_for_ready(self) -> None:
         metrics = {
             "commits": 20,
             "unique_committers": 4,
@@ -1300,8 +1312,8 @@ class GraduationGuideCheckTests(unittest.TestCase):
         self.assertEqual(
             sum(value == "strong" for value in readiness_assessment(record)["dimension_scores"].values()), 3
         )
-        self.assertEqual(readiness_assessment(record)["assessment"], "needs_ipmc_review")
-        self.assertEqual(readiness_assessment(record, strict_mode=True)["assessment"], "not_yet_ready")
+        self.assertEqual(readiness_assessment(record)["assessment"], "ready")
+        self.assertEqual(readiness_assessment(record, strict_mode=True)["assessment"], "near_ready")
 
     def test_summary_lists_every_reason(self) -> None:
         record = with_dev_mail(self.ready(), ("Time to retire Example?", "2026-10-01"))

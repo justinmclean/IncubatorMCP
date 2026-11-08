@@ -436,7 +436,7 @@ class ToolTests(unittest.TestCase):
 
         self.assertNotIn("release_stall", payload["items"][0]["watch_reasons"])
 
-    def test_graduation_readiness_sends_delta_for_ipmc_review(self) -> None:
+    def test_graduation_readiness_marks_delta_ready_or_near_ready(self) -> None:
         with make_fixture_sources() as (podlings_source, health_source):
             payload = tools.tool_graduation_readiness(
                 {
@@ -447,7 +447,7 @@ class ToolTests(unittest.TestCase):
                 }
             )
 
-        self.assertEqual(payload["assessment"], "needs_ipmc_review")
+        self.assertIn(payload["assessment"], {"ready", "near_ready"})
         self.assertTrue(payload["graduation_guide"])
         self.assertTrue(payload["strengths"])
         assert_explainability(self, payload["explainability"])
@@ -580,7 +580,7 @@ class ToolTests(unittest.TestCase):
                 tools,
                 "readiness_assessment",
                 return_value={
-                    "assessment": "needs_ipmc_review",
+                    "assessment": "ready",
                     "summary": "Strong readiness signals.",
                     "strengths": [],
                     "blockers": [],

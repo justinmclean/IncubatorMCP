@@ -831,7 +831,7 @@ def tool_podling_brief(arguments: dict[str, Any]) -> dict[str, Any]:
     ipmc_attention = [
         signal.recommended_action for signal in evaluation["signals"] if signal.signal not in {"graduation_momentum"}
     ]
-    if readiness["assessment"] == "needs_ipmc_review":
+    if readiness["assessment"] in {"near_ready", "ready"}:
         ipmc_attention.append("Check with mentors whether a graduation discussion should be scheduled.")
 
     status_summary = f"{record.name} is a {record.status} podling with {record.mentor_count} listed mentor(s)."
@@ -2180,8 +2180,8 @@ TOOLS: dict[str, dict[str, Any]] = {
     ),
     "graduation_readiness": schemas.tool_definition(
         description=(
-            "Report a podling's evidence against each Incubator graduation guide item; says not yet ready "
-            "when a requirement is unmet, otherwise that it needs IPMC review, never that it is ready."
+            "Assess whether a podling appears ready, near ready, or not yet ready for graduation, "
+            "with evidence for each Incubator graduation guide item."
         ),
         handler=tool_graduation_readiness,
         properties=schemas.readiness_properties(),
