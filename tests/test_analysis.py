@@ -920,11 +920,17 @@ def election_record(answer: str) -> OversightRecord:
 
 
 class CommunityElectionTests(unittest.TestCase):
-    def test_no_election_since_start_lowers_community_independence(self) -> None:
+    def test_no_one_added_since_start_is_weak_community_independence(self) -> None:
         for answer in ("At founding", "N/A", "2024-01-01, when the podling was accepted"):
             with self.subTest(answer=answer):
                 result = readiness_assessment(election_record(answer))
-                self.assertEqual(result["dimension_scores"]["community_independence"], "mixed")
+                self.assertEqual(result["dimension_scores"]["community_independence"], "weak")
+                self.assertTrue(any("since the podling started" in item for item in result["missing_evidence"]))
+
+    def test_no_one_added_since_start_caps_the_verdict(self) -> None:
+        result = readiness_assessment(election_record("At founding"))
+        self.assertEqual(result["assessment"], "not_yet_ready")
+        self.assertIn("added no committer or PPMC member since it started", result["summary"])
 
     def test_recent_election_keeps_community_independence(self) -> None:
         for answer in ("2026-07-24", "March 24, 2026 - three new committers", "Rose Duan, 19th Jan 2026"):
@@ -935,6 +941,7 @@ class CommunityElectionTests(unittest.TestCase):
     def test_old_election_lowers_community_independence(self) -> None:
         result = readiness_assessment(election_record("2025-02-01"))
         self.assertEqual(result["dimension_scores"]["community_independence"], "mixed")
+        self.assertTrue(any("in the last 12 months" in item for item in result["missing_evidence"]))
 
     def test_undated_election_is_not_counted_as_none(self) -> None:
         answer = "None so far. The vote to add Foo as a committer and PPMC member has passed."
