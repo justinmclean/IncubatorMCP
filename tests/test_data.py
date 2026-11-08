@@ -935,6 +935,7 @@ class DataTests(unittest.TestCase):
             mock.patch.object(data, "load_podlings", return_value=(podlings, {"source": "podlings.xml"})),
             mock.patch.object(data, "load_health_summaries", return_value=({}, {"source": "reports"})),
             mock.patch.object(data, "load_incubator_reports", return_value=({}, {"source": "reports"})),
+            mock.patch.object(data, "_fetch_url", side_effect=OSError("offline")),
             mock.patch.object(
                 data, "load_incubator_general_mail", return_value=({}, {"source": "mail", "available": True})
             ) as load_mail,
@@ -1048,6 +1049,7 @@ class DataTests(unittest.TestCase):
             mock.patch.object(data, "load_podlings", return_value=(podlings, {"source": "podlings.xml"})),
             mock.patch.object(data, "load_health_summaries", return_value=({}, {"source": "reports"})),
             mock.patch.object(data, "load_incubator_reports", return_value=({}, {"source": "reports"})),
+            mock.patch.object(data, "_fetch_url", side_effect=OSError("offline")),
             mock.patch.object(data, "load_incubator_general_mail", return_value=({}, {"available": True})),
             mock.patch.object(data, "load_podling_dev_mail", return_value=(dev, {"available": True})),
         ):
@@ -1061,6 +1063,7 @@ class DataTests(unittest.TestCase):
             mock.patch.object(data, "load_podlings", return_value=(podlings, {"source": "podlings.xml"})),
             mock.patch.object(data, "load_health_summaries", return_value=({}, {"source": "reports"})),
             mock.patch.object(data, "load_incubator_reports", return_value=({}, {"source": "reports"})),
+            mock.patch.object(data, "_fetch_url", side_effect=OSError("offline")),
             mock.patch.object(data, "load_incubator_general_mail", return_value=({}, {"available": True})),
             mock.patch.object(
                 data,

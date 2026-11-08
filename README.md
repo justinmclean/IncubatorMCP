@@ -413,7 +413,19 @@ Arguments:
 
 ### `graduation_readiness`
 
-Assess whether a podling appears ready, near ready, or not yet ready for graduation.
+Report what the sources show against each item of the
+[graduation guide](https://incubator.apache.org/guides/graduation.html). The
+tool never says a podling is ready: several items can only be judged by a
+person. `assessment` is one of:
+
+- `not_yet_ready`: a graduation requirement is shown not to be met (no
+  IPMC-approved release in 12 months, nobody added since the start, the name
+  search not resolved, or a retirement discussion), or the dimensions are
+  weak;
+- `at_risk`: three or more dimensions are weak;
+- `needs_ipmc_review`: no blocker was found; whether the podling is ready is
+  for its mentors and the IPMC to judge;
+- `insufficient_data` or `not_applicable`.
 
 Arguments:
 
@@ -454,14 +466,16 @@ number) count as release results or cancels, so a `[RESULT]` on an acceptance
 or graduation vote is not a release. Results and cancels are matched to their
 vote ignoring "Apache", "release", "vote" and outcome words such as "PASSED".
 
-`community_independence` is `weak` when a podling more than six months into
-incubation says in its latest report that no committer or PPMC member has been
-added since it started, however active its commits are, and the verdict is
-then at most `not_yet_ready`, as it is with no release. It is lowered one step
-when the latest addition is more than 12 months old. An answer that reports an
-addition without a date is not counted against it, and neither is a new
-committer or PPMC member announced on the podling's dev@ list in the last 12
-months.
+Graduation needs positive evidence that the podling has added a committer or
+PPMC member since it started: a date in any cached report's answer to "When
+were the last committers or PPMC members elected?", a new committer or PPMC
+member in the News section of the podling's Incubator status page, or an
+announcement on dev@. An answer that reports an addition without a date also
+counts. Without any of these the verdict is at most `not_yet_ready`, whatever
+the podling's age, as it is with no release. When a podling more than six
+months into incubation says in its latest report that nobody has been added,
+`community_independence` is `weak`; when the latest addition found is more
+than 12 months old it is lowered one step.
 
 For a single podling, its own dev@ list is also read live through MailMCP for
 the 12 months before `as_of_date` (or today), and returned as
@@ -474,18 +488,51 @@ senders and dates are read:
 - no dev@ mail for more than 90 days is listed in `blockers`;
 - a PPMC release `[VOTE]` on dev@ with no result in the last 21 days is listed
   in `missing_evidence` until the IPMC vote opens on general@;
-- an announcement of a new committer or PPMC member counts as a recent
-  election, and a graduation discussion is noted in the summary.
+- an announcement of a new committer or PPMC member counts as someone added,
+  and a graduation discussion is noted in the summary.
 
 If dev@ cannot be read, the reason is listed in `missing_evidence`.
+
+The same single-podling calls also read, live:
+
+- the podling's status page at `https://incubator.apache.org/projects/<slug>.html`,
+  for its News entries (`status_page_source`);
+- the PODLINGNAMESEARCH issues in the ASF Jira that name the podling
+  (`name_search_source`).
+
+`graduation_guide` lists each guide item with a `status` and the `evidence`
+behind it:
+
+- `met` or `not_met`: the sources settle it;
+- `unknown`: the source could not be read or has no data; this is listed in
+  `missing_evidence`, never treated as a pass;
+- `needs_person`: only a person can judge it, with whatever the sources show
+  as context.
+
+| Guide item | How it is shown |
+|---|---|
+| Suitable names (the naming process is mandatory) | A PODLINGNAMESEARCH issue resolved as fixed; `not_met` holds the verdict at `not_yet_ready` |
+| Ability to create Apache releases | An IPMC-approved release in the last 12 months |
+| Removing links to old releases from the website | `needs_person`; `release_artifact_evidence` shows the download page links |
+| Recruits committers and PMC members | Someone added since the start (see above) |
+| Recruits users and developers | `needs_person`, with new contributors and dev@ posters from the health report |
+| Not highly dependent on any single contributor | The health report's bus factor proxy: one contributor making half the commits is `not_met` |
+| Three legally independent committers, no single company vital | `needs_person`; no source records affiliations |
+| Collective action, public disagreement, open and inclusive lists | `needs_person`, with dev@ volume and senders |
+| Mentors and IPMC have no remaining issues | `needs_person`, with the latest report's answer on issues for the IPMC and mentor sign-offs |
+| Destination, charter and resolution | `needs_person` |
+| Community graduation vote (recommended, not required) | Graduation threads on dev@ or general@ |
+
+The status file's tasks are not listed: they are setup tasks every podling
+does early, and the file is often out of date.
 
 A weak `release_maturity` also holds the verdict at `not_yet_ready`, however
 strong the other dimensions are: graduation requires releases.
 
 `source_freshness` gives the age in days of the health report and the mail.
 A source more than 14 days old is listed in `stale_sources` and
-`missing_evidence`, keeps `confidence` at medium, and holds a `ready` verdict
-at `near_ready` until the source is refreshed. Mail fetched live in the call is
+`missing_evidence`, keeps `confidence` at medium, and is noted in the summary
+of a `needs_ipmc_review` verdict. Mail fetched live in the call is
 0 days old; mail served only from the cache is as old as its newest copy.
 
 ### `podling_brief`

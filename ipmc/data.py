@@ -6,6 +6,8 @@ import json
 import os
 import re
 import threading
+import urllib.parse
+import urllib.request
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -35,6 +37,11 @@ RESULT_MAIL_QUERY_LIMIT = 50
 # A podling's own dev@ list is read for the year before the reference date.
 # A busy list has a few hundred messages a year, one request of a few seconds.
 DEV_MAIL_LOOKBACK_DAYS = 365
+# The podling status page's News section lists new committers and PPMC members.
+DEFAULT_STATUS_PAGE_BASE = "https://incubator.apache.org/projects"
+# Podling name searches are PODLINGNAMESEARCH issues in the ASF Jira.
+DEFAULT_NAME_SEARCH_API = "https://issues.apache.org/jira/rest/api/2/search"
+LIVE_FETCH_TIMEOUT_SECONDS = 20
 DEFAULT_RELEASE_DIST_BASE = "https://dist.apache.org/repos/dist/release/incubator"
 DEFAULT_RELEASE_ARCHIVE_BASE = "https://archive.apache.org/dist/incubator"
 RELEASE_PAGE_LINK_LIMIT = 50
@@ -185,6 +192,15 @@ class OversightRecord:
     dev_mail_loaded: bool = False
     # Why dev@ could not be read, when a read was attempted and failed.
     dev_mail_error: str | None = None
+    # Dated News entries from the podling's Incubator status page.
+    status_news: list[dict[str, Any]] = field(default_factory=list)
+    status_page_loaded: bool = False
+    # Why the status page could not be read, when a read was attempted and failed.
+    status_page_error: str | None = None
+    # PODLINGNAMESEARCH issues for the podling's name.
+    name_searches: list[dict[str, Any]] = field(default_factory=list)
+    name_search_loaded: bool = False
+    name_search_error: str | None = None
 
     @property
     def name(self) -> str:
@@ -833,6 +849,99 @@ def podling_slug(podling: dict[str, Any]) -> str | None:
     return name or None
 
 
+STATUS_NEWS_SECTION_RE = re.compile(r"id=['\"]News['\"].*?(?=<h2\b|\Z)", re.IGNORECASE | re.DOTALL)
+STATUS_NEWS_ITEM_RE = re.compile(r"<li[^>]*>(.*?)</li>", re.IGNORECASE | re.DOTALL)
+STATUS_NEWS_DATE_RE = re.compile(r"^\s*(\d{4})-(\d{1,2})-(\d{1,2})\b[\s:.-]*(.*)$", re.DOTALL)
+
+
+def parse_status_news(html: str) -> list[dict[str, Any]]:
+    """Dated entries from the News section of an Incubator podling status page."""
+    section = STATUS_NEWS_SECTION_RE.search(html)
+    if section is None:
+        return []
+    entries = []
+    for item in STATUS_NEWS_ITEM_RE.findall(section.group(0)):
+        text = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", item)).strip()
+        match = STATUS_NEWS_DATE_RE.match(text)
+        if match is None:
+            continue
+        try:
+            when = date(int(match.group(1)), int(match.group(2)), int(match.group(3)))
+        except ValueError:
+            continue
+        entries.append({"date": when.isoformat(), "text": match.group(4).strip()})
+    return entries
+
+
+def _fetch_url(url: str) -> str:
+    request = urllib.request.Request(url, headers={"User-Agent": "apache-ipmc-mcp"})
+    with urllib.request.urlopen(request, timeout=LIVE_FETCH_TIMEOUT_SECONDS) as response:  # noqa: S310 - fixed https bases
+        return response.read().decode("utf-8", errors="replace")
+
+
+def load_podling_status_page(
+    podling: dict[str, Any], *, status_page_base: str | None = None
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Return the News entries from the podling's Incubator status page, live.
+
+    A failure returns empty lists and says why.
+    """
+    empty: list[dict[str, Any]] = []
+    slug = podling_slug(podling)
+    base = (status_page_base or DEFAULT_STATUS_PAGE_BASE).rstrip("/")
+    meta: dict[str, Any] = {"source": base, "podling": podling.get("name"), "slug": slug}
+    if not slug:
+        return empty, meta | {"available": False, "reason": "No slug is known for the podling."}
+    url = f"{base}/{slug}.html"
+    try:
+        html = _fetch_url(url)
+    except Exception as exc:  # noqa: BLE001 - status page evidence is optional; say why it is missing
+        return empty, meta | {"available": False, "url": url, "reason": f"Status page could not be read: {exc}"}
+    news = parse_status_news(html)
+    return news, meta | {"available": True, "url": url, "news_count": len(news)}
+
+
+def load_podling_name_search(
+    podling: dict[str, Any], *, api_url: str | None = None
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Return the PODLINGNAMESEARCH issues whose summary names the podling, live."""
+    name = str(podling.get("name") or "").strip()
+    api = api_url or DEFAULT_NAME_SEARCH_API
+    meta: dict[str, Any] = {"source": api, "podling": name}
+    if not name:
+        return [], meta | {"available": False, "reason": "No name is known for the podling."}
+    query = urllib.parse.urlencode(
+        {
+            "jql": f'project = PODLINGNAMESEARCH AND summary ~ "\\"{name}\\""',
+            "fields": "summary,status,resolution,resolutiondate,created",
+            "maxResults": "20",
+        }
+    )
+    url = f"{api}?{query}"
+    try:
+        payload = json.loads(_fetch_url(url))
+    except Exception as exc:  # noqa: BLE001 - name search evidence is optional; say why it is missing
+        return [], meta | {"available": False, "reason": f"PODLINGNAMESEARCH could not be read: {exc}"}
+    pattern = re.compile(rf"\b{re.escape(name)}\b", re.IGNORECASE)
+    issues = []
+    for issue in payload.get("issues") or []:
+        fields = issue.get("fields") or {}
+        summary = str(fields.get("summary") or "")
+        if not pattern.search(summary):
+            continue
+        issues.append(
+            {
+                "key": issue.get("key"),
+                "summary": summary,
+                "status": (fields.get("status") or {}).get("name"),
+                "resolution": (fields.get("resolution") or {}).get("name"),
+                "resolved": str(fields.get("resolutiondate") or "")[:10] or None,
+                "created": str(fields.get("created") or "")[:10] or None,
+            }
+        )
+    return issues, meta | {"available": True, "issue_count": len(issues)}
+
+
 def load_podling_dev_mail(
     podling: dict[str, Any],
     *,
@@ -1198,6 +1307,16 @@ def build_records(
         "available": False,
         "reason": "Podling dev@ mail is read only for single-podling mail views.",
     }
+    status_page_meta: dict[str, Any] = {
+        "source": "not_loaded",
+        "available": False,
+        "reason": "The podling status page is read only for single-podling mail views.",
+    }
+    name_search_meta: dict[str, Any] = {
+        "source": "not_loaded",
+        "available": False,
+        "reason": "PODLINGNAMESEARCH is read only for single-podling mail views.",
+    }
     if include_mail and requested_podling_key:
         target = next((record for record in records if _podling_key(record.name) == requested_podling_key), None)
         if target is not None:
@@ -1207,6 +1326,16 @@ def build_records(
             target.dev_mail_loaded = bool(dev_mail_meta.get("available"))
             if not target.dev_mail_loaded:
                 target.dev_mail_error = str(dev_mail_meta.get("reason") or "dev@ could not be read.")
+            # The status page and name search are read with dev@, for the same
+            # single-podling views.
+            target.status_news, status_page_meta = load_podling_status_page(target.podling)
+            target.status_page_loaded = bool(status_page_meta.get("available"))
+            if not target.status_page_loaded:
+                target.status_page_error = str(status_page_meta.get("reason") or "Status page could not be read.")
+            target.name_searches, name_search_meta = load_podling_name_search(target.podling)
+            target.name_search_loaded = bool(name_search_meta.get("available"))
+            if not target.name_search_loaded:
+                target.name_search_error = str(name_search_meta.get("reason") or "PODLINGNAMESEARCH could not be read.")
 
     return {
         "records": sorted(records, key=lambda item: item.name.casefold()),
@@ -1215,6 +1344,8 @@ def build_records(
         "report_source": report_meta,
         "mail_source": mail_meta,
         "dev_mail_source": dev_mail_meta,
+        "status_page_source": status_page_meta,
+        "name_search_source": name_search_meta,
     }
 
 
