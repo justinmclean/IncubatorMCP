@@ -1488,18 +1488,10 @@ def readiness_assessment(record: OversightRecord, strict_mode: bool = False) -> 
             )
         else:
             mail_notes.append(f"dev@ announces a new committer or PPMC member on {latest_added.isoformat()}.")
+    # Nobody added is listed in missing_evidence once, by the graduation guide item.
     if not added_member:
         if long_enough and added_kind == "none":
             community_independence = "weak"
-            missing_evidence.append(
-                "A committer or PPMC member added from the community since the podling started "
-                "(the latest report shows none)."
-            )
-        else:
-            missing_evidence.append(
-                "A committer or PPMC member added from the community since the podling started "
-                "(no report, status page News or dev@ announcement shows one)."
-            )
     elif latest_added is not None and long_enough and (reference - latest_added).days > RECENT_NEW_MEMBER_MAX_DAYS:
         community_independence = {"strong": "mixed", "mixed": "weak"}.get(
             community_independence, community_independence
