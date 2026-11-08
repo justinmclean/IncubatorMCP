@@ -963,7 +963,10 @@ class CommunityNewMemberTests(unittest.TestCase):
             with self.subTest(answer=answer):
                 result = readiness_assessment(added_record(answer))
                 self.assertEqual(result["dimension_scores"]["community_independence"], "weak")
-                self.assertTrue(any("since the podling started" in item for item in result["missing_evidence"]))
+                listed = [
+                    item for item in result["missing_evidence"] if "nobody has been added since the start" in item
+                ]
+                self.assertEqual(len(listed), 1)
 
     def test_no_one_added_since_start_caps_the_verdict(self) -> None:
         result = readiness_assessment(added_record("At founding"))
