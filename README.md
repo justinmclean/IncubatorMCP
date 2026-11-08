@@ -413,19 +413,24 @@ Arguments:
 
 ### `graduation_readiness`
 
-Report what the sources show against each item of the
-[graduation guide](https://incubator.apache.org/guides/graduation.html). The
-tool never says a podling is ready: several items can only be judged by a
-person. `assessment` is one of:
+Assess whether a podling appears ready, near ready, or not yet ready for
+graduation, with what the sources show against each item of the
+[graduation guide](https://incubator.apache.org/guides/graduation.html).
+`assessment` is one of:
 
+- `ready`: three or more dimensions strong (four in `strict_mode`), none weak,
+  and every guide item the sources can settle is met. The items in
+  `graduation_guide` marked `needs_person` still need a person;
+- `near_ready`: close, with the gaps listed in the summary, or `ready` held
+  back by a guide item not met or not settled, or by a stale source;
 - `not_yet_ready`: a graduation requirement is shown not to be met (no
   IPMC-approved release in 12 months, nobody added since the start, the name
   search not resolved, or a retirement discussion), or the dimensions are
-  weak;
+  not strong enough;
 - `at_risk`: three or more dimensions are weak;
-- `needs_ipmc_review`: no blocker was found; whether the podling is ready is
-  for its mentors and the IPMC to judge;
 - `insufficient_data` or `not_applicable`.
+
+The summary of a verdict below `ready` lists every reason found.
 
 Arguments:
 
@@ -531,8 +536,8 @@ strong the other dimensions are: graduation requires releases.
 
 `source_freshness` gives the age in days of the health report and the mail.
 A source more than 14 days old is listed in `stale_sources` and
-`missing_evidence`, keeps `confidence` at medium, and is noted in the summary
-of a `needs_ipmc_review` verdict. Mail fetched live in the call is
+`missing_evidence`, keeps `confidence` at medium, and holds a `ready` verdict
+at `near_ready` until the source is refreshed. Mail fetched live in the call is
 0 days old; mail served only from the cache is as old as its newest copy.
 
 ### `podling_brief`

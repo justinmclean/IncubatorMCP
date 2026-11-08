@@ -104,7 +104,7 @@ def reconcile_trajectory_and_readiness(trend: str, assessment: str) -> str | Non
     consumers from reading two unqualified headline strings as a contradiction.
     """
 
-    if trend == "worsening" and assessment == "needs_ipmc_review":
+    if trend == "worsening" and assessment in {"ready", "near_ready"}:
         return (
             "Trajectory and readiness point in different directions. Readiness reflects overall "
             "levels, which remain strong, while the trend reflects a recent decline in at least one "
@@ -1620,10 +1620,10 @@ def readiness_assessment(record: OversightRecord, strict_mode: bool = False) -> 
     ready_threshold = 4 if strict_mode else 3
 
     if strong_count >= ready_threshold and weak_count == 0:
-        assessment = "strong_levels"
+        assessment = "ready"
         summary = "The podling shows strong readiness signals across community, governance, and delivery."
     elif strong_count >= 2 and weak_count <= 1:
-        assessment = "mostly_strong"
+        assessment = "near_ready"
         summary = "The podling appears close to graduation readiness but still has a small number of gaps to close."
     elif weak_count >= 3:
         assessment = "at_risk"
@@ -1666,26 +1666,32 @@ def readiness_assessment(record: OversightRecord, strict_mode: bool = False) -> 
     hard_block = bool(retirement_lists) or any(
         entry["status"] == "not_met" and entry["item"].startswith(required) for entry in guide
     )
-    if hard_block and assessment in {"strong_levels", "mostly_strong"}:
+    if hard_block and assessment in {"ready", "near_ready"}:
         assessment = "not_yet_ready"
-    if strict_mode and assessment == "mostly_strong":
-        assessment = "not_yet_ready"
-        reasons.append("in strict mode, fewer than four readiness dimensions are strong")
-    # The tool never decides that a podling is ready: several graduation guide
-    # items can only be judged by a person. With no blocker shown, the verdict
-    # is that the podling needs the IPMC's review.
-    if assessment in {"strong_levels", "mostly_strong"}:
-        assessment = "needs_ipmc_review"
+    # Any other guide item not met or not settled, or a stale source, holds ready at near ready.
+    open_items = [
+        entry
+        for entry in guide
+        if entry["status"] in {"not_met", "unknown"} and not entry["item"].startswith("Community graduation vote")
+    ]
+    if assessment == "ready" and (open_items or freshness["stale_sources"]):
+        assessment = "near_ready"
+    if assessment == "ready":
         summary = (
-            "No graduation blocker was found in the sources. Whether the podling is ready is for its mentors and "
-            "the IPMC to judge: graduation_guide lists the items only a person can check and any the sources "
-            "could not settle."
+            "The podling shows strong readiness signals across community, governance, and delivery. "
+            "graduation_guide lists the items only a person can check before graduation."
         )
-        if reasons:
-            summary += " Still to look at: " + "; ".join(reasons) + "."
+    elif assessment == "near_ready":
+        reasons.extend(
+            f"{entry['item'].split(' (')[0]} is not settled: {entry['evidence'].rstrip('.')}"
+            for entry in open_items
+            if entry["status"] == "unknown"
+        )
+        summary = "The podling appears close to graduation readiness but still has gaps to close"
+        summary += ": " + "; ".join(reasons) + "." if reasons else "."
         if freshness["stale_sources"]:
             summary += f" At least one source is older than {STALE_SOURCE_DAYS} days."
-    elif assessment in {"not_yet_ready", "at_risk"}:
+    else:
         mixed = [label.replace("_", " ") for label, value in dimensions.items() if value == "mixed"]
         if not reasons and mixed:
             reasons.append(f"{', '.join(mixed)} {'is' if len(mixed) == 1 else 'are'} only mixed")
@@ -1694,7 +1700,7 @@ def readiness_assessment(record: OversightRecord, strict_mode: bool = False) -> 
     summary = " ".join([summary, *mail_notes]) if mail_notes else summary
 
     next_steps = []
-    if assessment == "needs_ipmc_review":
+    if assessment in {"ready", "near_ready"}:
         next_steps.append(
             "Review the graduation guide items with the mentors, starting with those a person must check."
         )
